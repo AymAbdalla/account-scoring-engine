@@ -8,20 +8,9 @@ _Dashboard screenshot goes here at release._
 
 ## Architecture at a glance
 
-```mermaid
-flowchart LR
-    trigger["GitHub Actions<br/>weekdays 7 AM ET<br/>+ Run button"] --> engine["Scoring engine<br/>(Python)"]
-    rules["weights.yaml<br/>segments, rules, tiers"] --> engine
-    data["Accounts<br/>(sample data)"] --> engine
-    engine -->|"upsert by Sample Id:<br/>Score, Tier, Top Reasons, Last Scored"| sf[("Salesforce<br/>Account")]
-    sf --> dash["Dashboard<br/>by segment, BDR,<br/>region and tier"]
-    engine -.->|"any failure"| red["Red run in GitHub,<br/>nothing written"]
-    signals["Signal listener<br/>(roadmap)"] -.-> engine
-    classDef later stroke-dasharray: 5 5
-    class signals later
-```
+![Architecture: GitHub Actions starts the Python scoring engine on a schedule or on demand. It reads sample accounts and signals plus weights.yaml, sorts each account into a segment, scores it, picks the top 3 reasons and upserts the results to Salesforce, where 60 BDRs see ranked lists.](docs/architecture.svg)
 
-GitHub starts the engine on a schedule or on demand. Nothing in a run needs a person, a laptop or a chat window. Dashed boxes are failure paths and roadmap items.
+GitHub starts the engine on a schedule or on demand. Nothing in a run needs a person, a laptop or a chat window.
 
 ## How it works
 
