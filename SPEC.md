@@ -6,11 +6,11 @@ Rank a BDR team's accounts on transparent rules and put the result where reps al
 
 ## In scope for v0.1
 
-- 300 generated sample accounts, 60 BDRs (15 per region), 4 regions: North America, EMEA, APAC, LATAM.
-- Six scoring rules, tiers and top three reasons.
+- 300 generated sample accounts and 60 BDRs. Each BDR works one segment in one region: 5 segments x 4 regions (North America, EMEA, APAC, LATAM) x 3 BDRs, with 5 accounts each.
+- Segment assignment by employee count, five scoring rules, tiers and top three reasons.
 - Write-back of results to Salesforce Account in a free Developer org.
 - A scheduled run plus a manual Run button through GitHub Actions.
-- One dashboard by BDR, region and tier.
+- One dashboard by segment, BDR, region and tier.
 
 ## Not in v0.1 (see the README roadmap)
 
@@ -23,21 +23,32 @@ Email, Google Sheets, Slack, a web app, a stored run log, eligibility checks, AI
 | id | text | Fixed ID; used to match records in Salesforce |
 | name | text | Generated company name |
 | region | text | North America, EMEA, APAC or LATAM |
-| bdr | text | Generated BDR name |
-| employees | whole number | |
+| bdr | text | Generated BDR name; the BDR works this account's segment and region |
+| employees | whole number | 50 or more; decides the segment |
 | countries | whole number | How many countries the company operates in |
 | industry | text | |
 | hiring_surge | true / false | |
 | new_hr_leader | true / false | |
 | days_since_engaged | whole number or empty | Empty means unknown, not "never" |
 
+## Segments (in `weights.yaml`)
+
+| Segment | Employees |
+|---|---|
+| SMB | 50 to 199 |
+| Mid-Market | 200 to 699 |
+| Sub-Enterprise | 700 to 999 |
+| Enterprise | 1,000 to 5,000 |
+| Large Enterprise | 5,001 and up |
+
+The engine sets the segment from `employees`. Size decides who works the account; it earns no points, so an account is ranked against its own segment.
+
 ## Rules (in `weights.yaml`)
 
 | Rule | Points | Group |
 |---|---|---|
-| Employees between 1,000 and 10,000 | 20 | Fit |
-| Operates in 3 or more countries | 15 | Fit |
-| Hourly-workforce industry (retail, hospitality, healthcare, manufacturing, logistics) | 15 | Fit |
+| Operates in 3 or more countries | 25 | Fit |
+| Hourly-workforce industry (retail, hospitality, healthcare, manufacturing, logistics) | 25 | Fit |
 | Hiring surge | 20 | Timing |
 | New HR leader | 15 | Timing |
 | Engaged in the last 14 days | 15 | Timing |
@@ -48,7 +59,7 @@ No rule logic lives outside `weights.yaml`.
 
 ## Output: one scored account (in `output/scores.json`)
 
-`id`, `score`, `tier`, `top_reasons` (the three highest-point rules that matched, highest first), `rules_version`, `scored_at` (UTC time).
+`id`, `segment`, `score`, `tier`, `top_reasons` (the three highest-point rules that matched, highest first), `rules_version`, `scored_at` (UTC time).
 
 Ranking order: score from highest to lowest, then account `id`, so the order is the same on every run.
 
@@ -61,6 +72,7 @@ Ranking order: score from highest to lowest, then account `id`, so the order is 
 | Tier | Picklist (A, B, C, D) | Engine, every run |
 | Top Reasons | Long text | Engine, every run |
 | Last Scored | Date/Time | Engine, every run |
+| Segment | Picklist (the five segments) | First load only |
 | BDR | Text | First load only |
 | Region | Picklist | First load only |
 
@@ -83,9 +95,9 @@ Salesforce credentials live in GitHub Actions secrets and a local `.env` file th
 
 ## Done when (v0.1 acceptance)
 
-- [ ] `python run_local.py` prints tier counts that add up to 300 and a top 10 with BDR, region and three reasons each.
-- [ ] `pytest` passes.
+- [ ] `python run_local.py` prints tier counts for each segment that add up to 300, and the top 3 accounts in each segment with BDR, region and three reasons each.
+- [ ] `pytest` passes, including the segment band edges (199, 200, 699, 700, 999, 1,000, 5,000, 5,001).
 - [ ] Two runs in a row leave exactly 300 scored accounts in Salesforce, with no duplicates.
 - [ ] A forced failure turns the GitHub run red and leaves the existing scores unchanged.
-- [ ] The dashboard shows accounts by BDR, region and tier, with the last scored time.
+- [ ] The dashboard shows accounts by segment, BDR, region and tier, with the last scored time.
 - [ ] Demo video recorded and linked in the README and the changelog.

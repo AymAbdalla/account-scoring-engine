@@ -15,10 +15,11 @@ Only list an item here once it's built and checked.
 Demo video: _link added at release_
 
 ### Added
-- Sample data generator: 300 fictional accounts, 60 BDRs across 4 regions, fixed seed so every run makes the same data.
-- Scoring engine: six rules worth 100 points in `weights.yaml`, tiers A to D, top three reasons per account in plain English.
-- Local run: tier counts, top 10 accounts and `output/scores.json`.
-- Tests for a full-match account, a no-match account and reason order.
-- Salesforce write-back: Score, Tier, Top Reasons and Last Scored on Account, matched on a fixed ID so reruns create no duplicates.
+- Sample data generator: 300 fictional accounts and 60 BDRs, each working one of 5 segments in one of 4 regions, fixed seed so every run makes the same data.
+- Segments by employee count: SMB, Mid-Market, Sub-Enterprise, Enterprise and Large Enterprise.
+- Scoring engine: five rules worth 100 points in `weights.yaml`, tiers A to D, top three reasons per account in plain English.
+- Local run: tier counts and top 3 accounts per segment and `output/scores.json`.
+- Tests for a full-match account, a no-match account, reason order and segment band edges.
+- Salesforce write-back: Segment, BDR and Region on first load; Score, Tier, Top Reasons and Last Scored on Account, matched on a fixed ID so reruns create no duplicates.
 - Scheduled GitHub Action with a manual Run button.
-- Salesforce dashboard by BDR, region and tier.
+- Salesforce dashboard by segment, BDR, region and tier.
