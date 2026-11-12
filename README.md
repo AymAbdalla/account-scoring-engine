@@ -6,9 +6,27 @@
 
 _Dashboard screenshot goes here at release._
 
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    trigger["GitHub Actions<br/>weekdays 7 AM ET<br/>+ Run button"] --> engine["Scoring engine<br/>(Python)"]
+    rules["weights.yaml<br/>segments, rules, tiers"] --> engine
+    data["Accounts<br/>(sample data)"] --> engine
+    engine -->|"upsert by Sample Id:<br/>Score, Tier, Top Reasons, Last Scored"| sf[("Salesforce<br/>Account")]
+    sf --> dash["Dashboard<br/>by segment, BDR,<br/>region and tier"]
+    engine -.->|"any failure"| red["Red run in GitHub,<br/>nothing written"]
+    signals["Signal listener<br/>(roadmap)"] -.-> engine
+    classDef later stroke-dasharray: 5 5
+    class signals later
+```
+
+GitHub starts the engine on a schedule or on demand. Nothing in a run needs a person, a laptop or a chat window. Dashed boxes are failure paths and roadmap items.
+
 ## How it works
 
-- **Rules live in one file.** `weights.yaml` holds six rules worth 100 points and the tier cutoffs. Changing a weight changes no code, and every score records which rules version made it.
+- **Each segment has its own reps.** Accounts are sorted into five segments by employee count (SMB to Large Enterprise), and each BDR works one segment in one region. A score ranks an account against the rest of its rep's book, so a small company isn't marked down for being small.
+- **Rules live in one file.** `weights.yaml` holds the segment bands, five rules worth 100 points and the tier cutoffs. Changing a weight changes no code, and every score records which rules version made it.
 - **Every score explains itself.** Each account gets a score, a tier (A to D) and the three rules that earned it the most points, in plain English.
 - **Runs on its own.** A scheduled GitHub Action scores all accounts and writes the results into Salesforce. A Run button triggers it by hand. It only updates the fields it owns, it's safe to run twice, and it fails loudly if anything goes wrong.
 
@@ -16,7 +34,7 @@ _Dashboard screenshot goes here at release._
 
 1. Set up Python: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
 2. Make the sample data: `python data/generate_sample.py`
-3. Score it: `python run_local.py` (prints tier counts and the top 10, and saves `output/scores.json`)
+3. Score it: `python run_local.py` (prints tier counts and the top 3 accounts for each segment, and saves `output/scores.json`)
 
 All data in this repo is generated sample data. No real company or person is in it.
 
@@ -24,7 +42,17 @@ All data in this repo is generated sample data. No real company or person is in 
 
 The score tells a BDR **where to look first**. It is not a win probability, and it doesn't clear an account for outreach. Ownership, customer status and opt-outs belong to a separate eligibility check (see the roadmap).
 
-Fit rules (company size, countries, industry) add up to 50 points at most, so **an account can't reach Tier A on fit alone**. It needs a timing signal: a hiring surge, a new HR leader or recent engagement.
+Company size decides **who works the account**, not how good it is. The engine puts each account in a segment, and the score ranks it inside that segment:
+
+| Segment | Employees |
+|---|---|
+| SMB | 50 to 199 |
+| Mid-Market | 200 to 699 |
+| Sub-Enterprise | 700 to 999 |
+| Enterprise | 1,000 to 5,000 |
+| Large Enterprise | 5,001 and up |
+
+Fit rules (countries and industry) add up to 50 points at most, so **an account can't reach Tier A on fit alone**. It needs a timing signal: a hiring surge, a new HR leader or recent engagement.
 
 Missing data scores zero but is reported as unknown, never as a negative signal.
 
@@ -33,7 +61,7 @@ Missing data scores zero but is reported as unknown, never as a negative signal.
 | Field | Owner | The engine… |
 |---|---|---|
 | Score, Tier, Top Reasons, Last Scored | Engine | writes on every run |
-| BDR, Region | Salesforce (in this demo, loaded once from sample data) | never overwrites |
+| Segment, BDR, Region | Salesforce (in this demo, loaded once from sample data) | never overwrites |
 | Account Owner | Salesforce | never touches |
 
 ## Roadmap
@@ -46,4 +74,5 @@ Each step ships as its own release with a changelog entry, and gets a new demo v
 4. **Call prep cards:** a daily brief for each contact on today's call list, with the verified signal, an opening question and gaps marked as gaps.
 5. **Overrides and history:** a person can change a tier with a reason and an end date, with the original score kept, and tier changes are tracked over time.
 6. **Measurement:** first a shadow run next to the current process, then meetings held and accepted pipeline per account worked, with coverage shown beside results.
-7. **Scale:** rescore only the accounts that changed, plus a 50,000-account test.
+7. **Rules per segment:** each segment gets its own weights in `weights.yaml`, for example more points for multi-country operations in Enterprise than in SMB.
+8. **Scale:** rescore only the accounts that changed, plus a 50,000-account test.
