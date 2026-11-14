@@ -1,0 +1,118 @@
+# The scoring rules. Every number and every reason the engine uses lives here.
+# Change a weight in this file and the scores change; no Python code needs editing.
+
+# Bump this number whenever a rule, a band or a tier cutoff changes.
+# Every score records the rules version that made it.
+# Editing the country table does not bump it: that changes the territory
+# flag, not the score.
+version: 1
+
+# Territories: a BDR covers one segment in one region.
+# Company size decides the segment, and where the company has its
+# headquarters decides the region. Neither earns any points.
+segment_field: employees
+segments:
+  - name: SMB
+    min: 50
+    max: 199
+  - name: Mid-Market
+    min: 200
+    max: 699
+  - name: Sub-Enterprise
+    min: 700
+    max: 999
+  - name: Enterprise
+    min: 1000
+    max: 5000
+  - name: Large Enterprise
+    min: 5001
+    max: null   # no upper limit
+
+# The regions, and the headquarters countries that belong to each one.
+# The engine looks up the account's headquarters country here to find its
+# region. A country that is not listed gives no region: the account is still
+# scored, and its territory is reported as not checked.
+# Mexico is in LATAM by choice; a team that treats it as North America
+# moves that one line.
+regions:
+  - North America
+  - EMEA
+  - APAC
+  - LATAM
+region_field: hq_country
+countries_by_region:
+  North America:
+    - United States
+    - Canada
+  EMEA:
+    - United Kingdom
+    - Germany
+    - France
+    - Netherlands
+    - Israel
+  APAC:
+    - Australia
+    - Singapore
+    - Japan
+    - India
+  LATAM:
+    - Brazil
+    - Mexico
+    - Argentina
+
+# Territory check. A BDR covers one segment in one region (see data/bdrs.json).
+# The engine compares each account's own segment and region with its BDR's
+# and reports one of these three results. It only flags; it never moves an
+# account.
+bdr_field: bdr
+territory_statuses:
+  in: In territory
+  outside: Outside territory
+  not_checked: Not checked
+
+# Five rules that add up to 100 points. Each rule looks at one field of the
+# account and runs one kind of check on it:
+#   at_least  the number is this value or higher
+#   at_most   the number is this value or lower
+#   is_true   the field is true
+#   in_list   the text is one of the listed values
+# Rules with equal points are shown in the order they are written here.
+rules:
+  - field: countries
+    check: at_least
+    value: 3
+    points: 25
+    reason: Operates in 3 or more countries
+  - field: industry
+    check: in_list
+    value: [retail, hospitality, healthcare, manufacturing, logistics]
+    points: 25
+    reason: Hourly-workforce industry
+  - field: hiring_surge
+    check: is_true
+    points: 20
+    reason: Hiring surge
+  - field: new_hr_leader
+    check: is_true
+    points: 15
+    reason: New HR leader
+  - field: days_since_engaged
+    check: at_most
+    value: 14
+    points: 15
+    reason: Engaged in the last 14 days
+
+# Tiers, highest first. An account gets the first tier whose minimum it reaches.
+tiers:
+  - name: A
+    min_score: 75
+  - name: B
+    min_score: 55
+  - name: C
+    min_score: 35
+  - name: D
+    min_score: 0
+
+# How many reasons to show for each account, and what to show when no rule matched.
+max_reasons: 3
+no_match_reason: No rules matched

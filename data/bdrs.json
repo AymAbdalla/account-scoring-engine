@@ -1,0 +1,242 @@
+{
+  "Danielle Johnson": {
+    "segment": "SMB",
+    "region": "North America"
+  },
+  "Jacqueline Barnes": {
+    "segment": "SMB",
+    "region": "North America"
+  },
+  "Lindsay Blair": {
+    "segment": "SMB",
+    "region": "North America"
+  },
+  "Norman Chavez": {
+    "segment": "SMB",
+    "region": "EMEA"
+  },
+  "Kayla Brown": {
+    "segment": "SMB",
+    "region": "EMEA"
+  },
+  "Julie Ryan": {
+    "segment": "SMB",
+    "region": "EMEA"
+  },
+  "Caitlin Mcdonald": {
+    "segment": "SMB",
+    "region": "APAC"
+  },
+  "Jennifer Stanton": {
+    "segment": "SMB",
+    "region": "APAC"
+  },
+  "Natasha Decker": {
+    "segment": "SMB",
+    "region": "APAC"
+  },
+  "Tamara Hickman": {
+    "segment": "SMB",
+    "region": "LATAM"
+  },
+  "Jeremy Whitehead": {
+    "segment": "SMB",
+    "region": "LATAM"
+  },
+  "Michelle Brown": {
+    "segment": "SMB",
+    "region": "LATAM"
+  },
+  "Scott Callahan": {
+    "segment": "Mid-Market",
+    "region": "North America"
+  },
+  "Joseph Bowers": {
+    "segment": "Mid-Market",
+    "region": "North America"
+  },
+  "Brendan Woods": {
+    "segment": "Mid-Market",
+    "region": "North America"
+  },
+  "Leslie Green": {
+    "segment": "Mid-Market",
+    "region": "EMEA"
+  },
+  "Casey Sanchez": {
+    "segment": "Mid-Market",
+    "region": "EMEA"
+  },
+  "Joseph Jacobs": {
+    "segment": "Mid-Market",
+    "region": "EMEA"
+  },
+  "Janice Hoffman": {
+    "segment": "Mid-Market",
+    "region": "APAC"
+  },
+  "Evelyn Estrada": {
+    "segment": "Mid-Market",
+    "region": "APAC"
+  },
+  "Elizabeth Moss": {
+    "segment": "Mid-Market",
+    "region": "APAC"
+  },
+  "James Murphy": {
+    "segment": "Mid-Market",
+    "region": "LATAM"
+  },
+  "Michael Hartman": {
+    "segment": "Mid-Market",
+    "region": "LATAM"
+  },
+  "Stacy Mccall": {
+    "segment": "Mid-Market",
+    "region": "LATAM"
+  },
+  "Christina Turner": {
+    "segment": "Sub-Enterprise",
+    "region": "North America"
+  },
+  "Jimmy Collins": {
+    "segment": "Sub-Enterprise",
+    "region": "North America"
+  },
+  "Adam Potter": {
+    "segment": "Sub-Enterprise",
+    "region": "North America"
+  },
+  "Karina Ramos": {
+    "segment": "Sub-Enterprise",
+    "region": "EMEA"
+  },
+  "Jennifer Young": {
+    "segment": "Sub-Enterprise",
+    "region": "EMEA"
+  },
+  "Rebecca Silva": {
+    "segment": "Sub-Enterprise",
+    "region": "EMEA"
+  },
+  "Todd Price": {
+    "segment": "Sub-Enterprise",
+    "region": "APAC"
+  },
+  "Brent Gray": {
+    "segment": "Sub-Enterprise",
+    "region": "APAC"
+  },
+  "Susan Williams": {
+    "segment": "Sub-Enterprise",
+    "region": "APAC"
+  },
+  "Julie Wilson": {
+    "segment": "Sub-Enterprise",
+    "region": "LATAM"
+  },
+  "Melissa Burke": {
+    "segment": "Sub-Enterprise",
+    "region": "LATAM"
+  },
+  "Jasmine Graham": {
+    "segment": "Sub-Enterprise",
+    "region": "LATAM"
+  },
+  "Cheryl Gray": {
+    "segment": "Enterprise",
+    "region": "North America"
+  },
+  "Richard Peters": {
+    "segment": "Enterprise",
+    "region": "North America"
+  },
+  "Mark Warner": {
+    "segment": "Enterprise",
+    "region": "North America"
+  },
+  "Jeremy White": {
+    "segment": "Enterprise",
+    "region": "EMEA"
+  },
+  "Jack Williams": {
+    "segment": "Enterprise",
+    "region": "EMEA"
+  },
+  "Jeremiah Mills": {
+    "segment": "Enterprise",
+    "region": "EMEA"
+  },
+  "Aaron Hayes": {
+    "segment": "Enterprise",
+    "region": "APAC"
+  },
+  "Douglas Brown": {
+    "segment": "Enterprise",
+    "region": "APAC"
+  },
+  "Anthony Perez": {
+    "segment": "Enterprise",
+    "region": "APAC"
+  },
+  "Theodore Ortiz": {
+    "segment": "Enterprise",
+    "region": "LATAM"
+  },
+  "Michelle Bryan": {
+    "segment": "Enterprise",
+    "region": "LATAM"
+  },
+  "Todd Johnson": {
+    "segment": "Enterprise",
+    "region": "LATAM"
+  },
+  "Thomas Bryant": {
+    "segment": "Large Enterprise",
+    "region": "North America"
+  },
+  "Donna Grimes": {
+    "segment": "Large Enterprise",
+    "region": "North America"
+  },
+  "Lisa Hughes": {
+    "segment": "Large Enterprise",
+    "region": "North America"
+  },
+  "Monica Booker": {
+    "segment": "Large Enterprise",
+    "region": "EMEA"
+  },
+  "Casey Welch": {
+    "segment": "Large Enterprise",
+    "region": "EMEA"
+  },
+  "John Jenkins": {
+    "segment": "Large Enterprise",
+    "region": "EMEA"
+  },
+  "Eric Alexander": {
+    "segment": "Large Enterprise",
+    "region": "APAC"
+  },
+  "Kenneth Spence": {
+    "segment": "Large Enterprise",
+    "region": "APAC"
+  },
+  "Donna Massey": {
+    "segment": "Large Enterprise",
+    "region": "APAC"
+  },
+  "Alyssa Mcintyre": {
+    "segment": "Large Enterprise",
+    "region": "LATAM"
+  },
+  "Linda Diaz": {
+    "segment": "Large Enterprise",
+    "region": "LATAM"
+  },
+  "Mark Bishop": {
+    "segment": "Large Enterprise",
+    "region": "LATAM"
+  }
+}
