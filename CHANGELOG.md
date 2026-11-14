@@ -10,16 +10,42 @@ Only list an item here once it's built and checked.
 
 ## [Unreleased]
 
-## [0.1.0] - not yet released
-
-Demo video: _link added at release_
+Work towards v0.1.0. Everything listed here is built, tested and checked. Three things are still to come before v0.1.0 is released: the scheduled GitHub Action with a Run button, the Salesforce dashboard and the demo video.
 
 ### Added
-- Sample data generator: 300 fictional accounts and 60 BDRs, each working one of 5 segments in one of 4 regions, fixed seed so every run makes the same data.
-- Segments by employee count: SMB, Mid-Market, Sub-Enterprise, Enterprise and Large Enterprise.
-- Scoring engine: five rules worth 100 points in `weights.yaml`, tiers A to D, top three reasons per account in plain English.
-- Local run: tier counts and top 3 accounts per segment and `output/scores.json`.
-- Tests for a full-match account, a no-match account, reason order and segment band edges.
-- Salesforce write-back: Segment, BDR and Region on first load; Score, Tier, Top Reasons and Last Scored on Account, matched on a fixed ID so reruns create no duplicates.
-- Scheduled GitHub Action with a manual Run button.
-- Salesforce dashboard by segment, BDR, region and tier.
+
+Scoring
+- Scoring engine: five rules worth 100 points, tiers A to D, and up to three reasons per account in plain English. An account that matches no rule says "No rules matched".
+- One rules file, `weights.yaml`: the segment bands, the regions and their countries, the rules, the tier cutoffs and the territory status names. Changing a weight changes no code, and every score records the rules version that made it.
+- Segments by employee count: SMB, Mid-Market, Sub-Enterprise, Enterprise and Large Enterprise. Size decides who works an account and earns no points.
+- Missing data scores zero and is reported as unknown, never as a negative signal.
+
+Territories
+- Region worked out from the headquarters country, using a country table in `weights.yaml`. A country the table does not know gives no region; the account is still scored.
+- Territory check: every account is compared with the territory (segment and region) of the BDR who holds it and marked In territory, Outside territory or Not checked, with a one-line reason such as "205 employees is Mid-Market; BDR covers SMB". The engine only flags; it never moves an account.
+
+Sample data and local run
+- Sample data generator: 300 fictional accounts and a roster of 60 BDRs, each covering one of 5 segments in one of 4 regions. A fixed seed makes every run produce the same files. Fifteen accounts are deliberately placed outside their BDR's territory and three have an unknown country, so the territory check has something to find.
+- Local run (`run_local.py`): tier counts and the top 3 accounts for each segment, the territory check, and `output/scores.json` in ranking order.
+
+Salesforce
+- Ten custom fields on Account and one permission set, kept as files and deployed with the Salesforce CLI. The permission set can read, create and edit accounts but not delete them.
+- Login as the engine's own least-privilege integration user, through an External Client App with the client credentials flow. Secrets are read from the environment and never printed.
+- Connection check (`check_salesforce.py`): logs in and confirms the engine can see and edit all ten fields. It only reads.
+- Write-back (`write_back.py`): checks every record before sending anything, then writes all accounts in one all-or-nothing request matched on a fixed id, so a rerun updates the same accounts and creates no duplicates. Name and BDR are set on the first load only. Score, Tier, Top Reasons, Last Scored, Segment, Region, Territory Status and Territory Note are written on every run.
+- Read back: the engine counts the accounts carrying the run's time before writing and after it. A run succeeds only when Salesforce confirms the write and the count matches. Every failure ends with an error and prints the scored, written and failed counts.
+
+Tests
+- 185 automated tests. The Salesforce tests run against a stand-in that answers the way the real org does, and a safety net makes any test fail at once if it tries to reach the real network.
+
+### Changed
+
+- Tier A needs at least two of the three timing signals. The earlier wording said one; full fit plus one timing signal is 70 points, which is Tier B.
+- Segment and Region are written to Salesforce on every run. They were first-load only before the engine worked them out itself.
+- The roadmap in the README is grouped into v0.2, v0.3 and v0.4.
+
+### Proven in a Salesforce Developer org
+
+- One bad record in a batch of 200 undid a second batch sent in the same request, so a write of 300 accounts is all or nothing.
+- Two runs in a row left exactly 300 accounts with no duplicates. A BDR changed by hand survived a rerun.
+- A duplicate id, a company too small for any segment and a wrong secret each ended the run with an error and left the stored scores unchanged.
