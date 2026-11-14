@@ -1,0 +1,653 @@
+"""Tests for the write-back: score, check, write to Salesforce, read back.
+
+No test here touches the real Salesforce. FakeOrg below plays its part: it keeps
+accounts in memory and answers the three requests the engine makes, in the same
+shapes the real org returned in a test on 2026-11-14 (including undoing
+everything when one record in a request is bad).
+"""
+import json
+import re
+
+import pytest
+import requests
+
+from salesforce.records import load_field_limits
+from scoring.engine import load_rules
+from write_back import WriteBackFailed, main, write_back
+
+RULES = load_rules()
+LIMITS = load_field_limits()
+SESSION = {"access_token": "test-token", "instance_url": "https://example-dev-ed.develop.my.salesforce.com"}
+ROSTER = {"Sample Person": {"segment": "SMB", "region": "North America"}}
+
+
+def make_account(number, **changes):
+    account = {
+        "id": "ACC-{:04d}".format(number),
+        "name": "Sample Company {}".format(number),
+        "hq_country": "United States",
+        "bdr": "Sample Person",
+        "employees": 100,
+        "countries": 5,
+        "industry": "retail",
+        "hiring_surge": True,
+        "new_hr_leader": False,
+        "days_since_engaged": 60,
+    }
+    account.update(changes)
+    return account
+
+
+class FakeResponse:
+    def __init__(self, status_code, body):
+        self.status_code = status_code
+        self.body = body
+
+    def json(self):
+        return self.body
+
+
+class FakeOrg:
+    """An in-memory Salesforce org with only what the engine uses.
+
+    It is as strict as the real org about the request it is sent: the wrong
+    address, method or record shape fails the test, as it would fail for real.
+    """
+
+    UPSERT_ADDRESS = "/services/data/v68.0/composite/sobjects/Account/Sample_Id__c"
+
+    def __init__(self):
+        self.accounts = {}          # Sample Id -> the fields saved on that account
+        self.requests = []          # every request received: ("query" / "count" / "write", detail)
+        self.reject = {}            # Sample Id -> error message Salesforce should give for it
+        self.count_script = []      # answers for the next count requests, in order: a number, or a FakeResponse
+        self.time_out_on_write = None  # "before saving" or "after saving"
+        self.before_write = None    # something to do when a write arrives, before handling it
+        self.login_reply = None     # a FakeResponse to give instead of a token
+        self.query_reply = None     # a FakeResponse to give instead of the list of existing ids
+        self.write_reply = None     # a FakeResponse to give instead of doing the write
+
+    def stored_id(self, sample_id):
+        """Find an account ignoring upper and lower case, as the real Sample Id field does."""
+        for stored in self.accounts:
+            if stored.lower() == sample_id.lower():
+                return stored
+        return None
+
+    def get(self, url, headers=None, params=None, timeout=None):
+        assert headers == {"Authorization": "Bearer test-token"}
+        assert url == "https://example-dev-ed.develop.my.salesforce.com/services/data/v68.0/query"
+        assert timeout == 30
+        query = params["q"]
+        if "COUNT()" in query:
+            scored_at = re.search(r"^SELECT COUNT\(\) FROM Account WHERE Last_Scored__c = (\S+)$", query).group(1)
+            self.requests.append(("count", scored_at))
+            total = sum(1 for fields in self.accounts.values() if fields.get("Last_Scored__c") == scored_at)
+            if self.count_script:
+                scripted = self.count_script.pop(0)
+                if isinstance(scripted, FakeResponse):
+                    return scripted
+                total = scripted
+            return FakeResponse(200, {"totalSize": total, "done": True, "records": []})
+        assert query == "SELECT Sample_Id__c FROM Account WHERE Sample_Id__c != null"
+        self.requests.append(("query", query))
+        if self.query_reply:
+            return self.query_reply
+        return FakeResponse(200, {
+            "totalSize": len(self.accounts),
+            "done": True,
+            "records": [{"Sample_Id__c": sample_id} for sample_id in self.accounts],
+        })
+
+    def post(self, url, data=None, headers=None, json=None, timeout=None):
+        assert timeout == 30
+        if url == "https://example-dev-ed.develop.my.salesforce.com/services/oauth2/token":
+            assert data["grant_type"] == "client_credentials"
+            return self.login_reply or FakeResponse(200, {
+                "access_token": "test-token",
+                "instance_url": "https://example-dev-ed.develop.my.salesforce.com",
+            })
+        assert headers == {"Authorization": "Bearer test-token"}
+        assert url == "https://example-dev-ed.develop.my.salesforce.com/services/data/v68.0/composite"
+        assert json["allOrNone"] is True
+        for part in json["compositeRequest"]:
+            assert part["method"] == "PATCH"
+            assert part["url"] == self.UPSERT_ADDRESS
+            assert part["body"]["allOrNone"] is True
+            assert 1 <= len(part["body"]["records"]) <= 200
+            for record in part["body"]["records"]:
+                assert record["attributes"] == {"type": "Account"}
+        batches = [part["body"]["records"] for part in json["compositeRequest"]]
+        self.requests.append(("write", [len(batch) for batch in batches]))
+        if self.before_write:
+            self.before_write()
+        if self.time_out_on_write == "before saving":
+            # The text holds the token on purpose: the engine must not repeat it.
+            raise requests.exceptions.Timeout("no answer to request with Bearer test-token")
+        if self.write_reply:
+            return self.write_reply
+
+        def bad(record):
+            return record["Sample_Id__c"] in self.reject
+
+        if any(bad(record) for batch in batches for record in batch):
+            # One bad record: Salesforce saves nothing from any batch.
+            parts = []
+            for number, batch in enumerate(batches, start=1):
+                if any(bad(record) for record in batch):
+                    results = []
+                    for record in batch:
+                        if bad(record):
+                            error = {"statusCode": "INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST",
+                                     "message": self.reject[record["Sample_Id__c"]], "fields": ["Tier__c"]}
+                        else:
+                            error = {"statusCode": "ALL_OR_NONE_OPERATION_ROLLED_BACK",
+                                     "message": "Record rolled back because not all records were valid and the request was using AllOrNone header",
+                                     "fields": []}
+                        results.append({"success": False, "created": True, "errors": [error]})
+                    parts.append({"httpStatusCode": 200, "referenceId": "batch{}".format(number), "body": results})
+                else:
+                    parts.append({"httpStatusCode": 400, "referenceId": "batch{}".format(number), "body": [{
+                        "errorCode": "PROCESSING_HALTED",
+                        "message": "The transaction was rolled back since another operation in the same transaction failed.",
+                    }]})
+            return FakeResponse(200, {"compositeResponse": parts})
+
+        parts = []
+        for number, batch in enumerate(batches, start=1):
+            results = []
+            for record in batch:
+                fields = {key: value for key, value in record.items() if key not in ("attributes", "Sample_Id__c")}
+                stored = self.stored_id(record["Sample_Id__c"])
+                if stored is None:
+                    assert record.get("Name"), "Salesforce requires a Name to create an account"
+                    stored = record["Sample_Id__c"]
+                    self.accounts[stored] = {"Sample_Id__c": stored}
+                    created = True
+                else:
+                    created = False
+                self.accounts[stored].update(fields)
+                results.append({"id": "001", "success": True, "created": created, "errors": []})
+            parts.append({"httpStatusCode": 200, "referenceId": "batch{}".format(number), "body": results})
+        if self.time_out_on_write == "after saving":
+            raise requests.exceptions.Timeout("no answer to request with Bearer test-token")
+        return FakeResponse(200, {"compositeResponse": parts})
+
+
+def run(org, accounts, scored_at=None):
+    """Run the write-back against the fake org, keeping what it prints.
+
+    scored_at freezes the clock: the run uses exactly that time.
+    """
+    printed = []
+    result = write_back(accounts, RULES, ROSTER, LIMITS, SESSION, http=org, say=printed.append, scored_at=scored_at)
+    return result, printed
+
+
+def test_first_run_creates_every_account_with_every_field():
+    org = FakeOrg()
+    result, printed = run(org, [make_account(1), make_account(2), make_account(3)])
+    assert result == {"scored": 3, "written": 3, "failed": 0}
+    assert sorted(org.accounts) == ["ACC-0001", "ACC-0002", "ACC-0003"]
+    saved = org.accounts["ACC-0001"]
+    assert saved["Name"] == "Sample Company 1"
+    assert saved["BDR__c"] == "Sample Person"
+    assert (saved["Score__c"], saved["Tier__c"], saved["Segment__c"], saved["Region__c"]) == (70, "B", "SMB", "North America")
+    assert saved["Territory_Status__c"] == "In territory"
+    assert any("Scored 3, written 3, failed 0" in line for line in printed)
+
+
+def test_second_run_updates_in_place_and_keeps_a_hand_edited_bdr_and_name():
+    org = FakeOrg()
+    accounts = [make_account(1), make_account(2)]
+    run(org, accounts, scored_at="2026-11-14T12:00:00Z")
+    # Someone edits the account in Salesforce between runs.
+    org.accounts["ACC-0001"]["BDR__c"] = "Edited By Hand"
+    org.accounts["ACC-0001"]["Name"] = "Renamed By Hand"
+    org.accounts["ACC-0001"]["Last_Scored__c"] = "2020-01-01T00:00:00Z"
+    org.accounts["ACC-0001"]["Score__c"] = 1
+
+    result, _ = run(org, accounts, scored_at="2026-11-14T12:00:05Z")  # a later run
+    assert result == {"scored": 2, "written": 2, "failed": 0}
+    assert sorted(org.accounts) == ["ACC-0001", "ACC-0002"]      # no duplicates
+    assert org.accounts["ACC-0001"]["BDR__c"] == "Edited By Hand"  # not overwritten
+    assert org.accounts["ACC-0001"]["Name"] == "Renamed By Hand"   # not overwritten
+    assert org.accounts["ACC-0001"]["Score__c"] == 70              # the engine's field is refreshed
+    assert org.accounts["ACC-0001"]["Last_Scored__c"] == "2026-11-14T12:00:05Z"
+
+
+def test_one_bad_record_stops_the_run_before_anything_is_sent():
+    # Guard under test: find_problems, run before any request. The duplicate id
+    # is caught there; nothing reaches the fake org.
+    org = FakeOrg()
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2), make_account(2)])
+    assert "ACC-0002" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (3, 0, 3)
+    assert org.requests == []
+    assert org.accounts == {}
+
+
+def test_record_rejected_by_salesforce_saves_nothing_and_names_the_account():
+    org = FakeOrg()
+    org.reject["ACC-0002"] = "Tier: bad value for restricted picklist field: B"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2), make_account(3)])
+    assert "ACC-0002" in str(caught.value)
+    assert "bad value for restricted picklist" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (3, 0, 3)
+    assert org.accounts == {}
+
+
+def test_read_back_that_comes_up_short_fails_the_run():
+    org = FakeOrg()
+    org.count_script = [0, 2]  # none before the write, then only 2 of the 3 after it
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2), make_account(3)])
+    assert "read back" in str(caught.value).lower()
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (3, 2, 1)
+
+
+def test_more_than_200_records_go_in_one_request_split_into_batches():
+    # One request is the requirement: Salesforce undoes all batches in a
+    # request together, but not batches sent in separate requests.
+    org = FakeOrg()
+    result, _ = run(org, [make_account(number) for number in range(1, 251)])
+    assert result == {"scored": 250, "written": 250, "failed": 0}
+    assert len(org.accounts) == 250
+    assert [detail for kind, detail in org.requests if kind == "write"] == [[200, 50]]
+
+
+def test_write_that_times_out_without_saving_fails_the_run():
+    org = FakeOrg()
+    org.time_out_on_write = "before saving"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, 0, 2)
+    message = str(caught.value)
+    assert "no answer" in message.lower()
+    assert "No account carries this run's time, so nothing was written." in message
+    assert "Run it again; a rerun is safe." in message
+    assert "test-token" not in message
+
+
+def test_write_that_gets_no_answer_is_never_reported_as_a_success():
+    # No answer came back. Here the write was in fact saved, and every account
+    # carries this run's time. But a count cannot prove the accounts came from
+    # THIS run (another run in the same second would look the same), so the
+    # engine reports that it does not know, and the run fails.
+    org = FakeOrg()
+    org.time_out_on_write = "after saving"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, None, None)
+    assert "no answer" in str(caught.value).lower()
+    assert "run it again" in str(caught.value).lower()
+    assert "test-token" not in str(caught.value)
+
+
+def test_more_records_than_one_request_can_hold_stops_before_any_write():
+    # Guard under test: the cap in write_records (5 batches of 200). Splitting
+    # across requests would lose all-or-nothing, so the run stops instead.
+    org = FakeOrg()
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(number) for number in range(1, 1002)])
+    assert "1001 records is more than one all-or-nothing request can hold" in str(caught.value)
+    assert [kind for kind, _ in org.requests if kind == "write"] == []
+    assert org.accounts == {}
+
+
+def test_no_accounts_at_all_is_a_failure_not_a_silent_success():
+    org = FakeOrg()
+    with pytest.raises(WriteBackFailed, match="no accounts to write"):
+        run(org, [])
+    assert org.requests == []
+
+
+def test_bad_record_late_in_the_second_batch_is_the_one_named():
+    # 250 records travel as batches of 200 and 50. The bad one is deep in the
+    # second batch, behind dozens of "rolled back" results that are not the cause.
+    org = FakeOrg()
+    org.reject["ACC-0240"] = "Tier: bad value for restricted picklist field: B"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(number) for number in range(1, 251)])
+    assert "ACC-0240: Tier: bad value for restricted picklist field: B" in str(caught.value)
+    assert "rolled back" not in str(caught.value).lower()
+    assert org.accounts == {}
+
+
+def test_batch_refused_as_a_whole_shows_salesforces_own_reason():
+    # The shape Salesforce uses when a whole batch is refused, for example for a missing field.
+    org = FakeOrg()
+    org.write_reply = FakeResponse(200, {"compositeResponse": [{
+        "httpStatusCode": 400, "referenceId": "batch1",
+        "body": [{"errorCode": "INVALID_FIELD", "message": "No such column 'Foo__c' on sobject of type Account"}],
+    }]})
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert "INVALID_FIELD: No such column 'Foo__c' on sobject of type Account" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, 0, 2)
+
+
+def test_read_back_that_finds_too_many_fails_without_a_negative_count():
+    org = FakeOrg()
+    org.count_script = [0, 5]  # none before the write, then 5 after it
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2), make_account(3)])
+    assert "found 5" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (3, 5, 0)
+
+
+def test_read_back_that_cannot_be_done_reports_the_counts_as_unknown():
+    # The write went through, but the count afterwards was refused. The engine
+    # cannot say how many were written, so it must not claim zero.
+    org = FakeOrg()
+    org.count_script = [0, FakeResponse(401, [{"errorCode": "INVALID_SESSION_ID", "message": "Session expired or invalid"}])]
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert "INVALID_SESSION_ID" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, None, None)
+
+
+def test_failure_to_list_existing_accounts_keeps_the_scored_count_and_sends_no_write():
+    org = FakeOrg()
+    org.query_reply = FakeResponse(503, [{"errorCode": "SERVER_UNAVAILABLE", "message": "Try again later"}])
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2), make_account(3)])
+    assert "SERVER_UNAVAILABLE" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (3, 0, 3)
+    assert [kind for kind, _ in org.requests] == ["query"]
+
+
+def test_account_stored_with_different_letter_case_is_still_treated_as_existing():
+    # Salesforce treats acc-0001 and ACC-0001 as the same Sample Id. The engine
+    # must too, or it would resend the Name and BDR and overwrite a hand edit.
+    org = FakeOrg()
+    org.accounts["acc-0001"] = {"Sample_Id__c": "acc-0001", "Name": "Renamed By Hand", "BDR__c": "Edited By Hand"}
+    result, _ = run(org, [make_account(1)])
+    assert result == {"scored": 1, "written": 1, "failed": 0}
+    assert list(org.accounts) == ["acc-0001"]
+    assert org.accounts["acc-0001"]["Name"] == "Renamed By Hand"
+    assert org.accounts["acc-0001"]["BDR__c"] == "Edited By Hand"
+    assert org.accounts["acc-0001"]["Score__c"] == 70
+
+
+# --- The whole program, as it runs from the command line -------------------
+
+ENVIRONMENT = {
+    "SF_INSTANCE_URL": "https://example-dev-ed.develop.my.salesforce.com",
+    "SF_CLIENT_ID": "test-client-id",
+    "SF_CLIENT_SECRET": "test-client-secret",
+}
+
+
+def write_accounts_file(folder, content):
+    path = folder / "accounts.json"
+    path.write_text(content if isinstance(content, str) else json.dumps(content))
+    return path
+
+
+def test_program_logs_in_writes_and_prints_the_counts(tmp_path, capsys):
+    org = FakeOrg()
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    main(path, environ=ENVIRONMENT, http=org)
+    assert "Scored 2, written 2, failed 0." in capsys.readouterr().out
+    assert sorted(org.accounts) == ["ACC-0001", "ACC-0002"]
+
+
+def test_program_ends_with_an_error_and_the_counts_when_salesforce_rejects_a_record(tmp_path, capsys):
+    org = FakeOrg()
+    org.reject["ACC-0002"] = "Tier: bad value for restricted picklist field: B"
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code) and "ACC-0002" in str(stopped.value.code)
+    assert "Scored 2, written 0, failed 2." in capsys.readouterr().out
+
+
+def test_program_says_the_counts_are_unknown_when_the_read_back_cannot_be_done(tmp_path, capsys):
+    org = FakeOrg()
+    org.count_script = [0, FakeResponse(401, [{"errorCode": "INVALID_SESSION_ID", "message": "Session expired or invalid"}])]
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code)
+    assert "Scored 2, written unknown, failed unknown." in capsys.readouterr().out
+
+
+def test_program_ends_with_an_error_when_the_login_is_refused(tmp_path, capsys):
+    org = FakeOrg()
+    org.login_reply = FakeResponse(400, {"error": "invalid_client", "error_description": "invalid client credentials"})
+    path = write_accounts_file(tmp_path, [make_account(1)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code) and "invalid_client" in str(stopped.value.code)
+    printed = capsys.readouterr().out
+    assert "Nothing was scored or written." in printed
+    assert "failed 0" not in printed
+    assert org.requests == []
+
+
+@pytest.mark.parametrize(
+    "content, words",
+    [
+        ("{not json", "not valid JSON"),
+        ({"accounts": []}, "a list of accounts"),
+        ([{"name": "No Id Company"}], "a list of accounts"),
+        (["just text"], "a list of accounts"),
+    ],
+)
+def test_program_explains_a_data_file_it_cannot_use_and_sends_nothing(tmp_path, capsys, content, words):
+    org = FakeOrg()
+    path = write_accounts_file(tmp_path, content)
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code) and words in str(stopped.value.code)
+    assert "Nothing was scored or written." in capsys.readouterr().out
+    assert org.requests == []
+
+
+# --- One second, two runs: an old run must never vouch for a new one -------
+
+FROZEN = "2026-11-14T12:00:00Z"
+
+
+def lower_scores(accounts):
+    """The same accounts with the hiring surge gone, so they score 50, not 70."""
+    return [dict(account, hiring_surge=False) for account in accounts]
+
+
+def stored_scores(org):
+    return sorted(set(fields["Score__c"] for fields in org.accounts.values()))
+
+
+def test_rejected_run_is_not_vouched_for_by_an_earlier_run_in_the_same_second():
+    org = FakeOrg()
+    accounts = [make_account(number) for number in range(1, 301)]
+    run(org, accounts, scored_at=FROZEN)
+    assert stored_scores(org) == [70]
+
+    # A second run in the same second, with new scores, that Salesforce rejects.
+    org.reject["ACC-0150"] = "Tier: bad value for restricted picklist field: C"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, lower_scores(accounts), scored_at=FROZEN)
+    assert caught.value.scored == 300
+    assert caught.value.written == 0
+    assert stored_scores(org) == [70]  # the old scores are still there, and the run said so
+
+
+def test_timed_out_run_is_not_vouched_for_by_an_earlier_run_in_the_same_second():
+    org = FakeOrg()
+    accounts = [make_account(number) for number in range(1, 301)]
+    run(org, accounts, scored_at=FROZEN)
+
+    org.time_out_on_write = "before saving"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, lower_scores(accounts), scored_at=FROZEN)
+    assert caught.value.scored == 300
+    assert caught.value.written == 0
+    assert stored_scores(org) == [70]
+
+
+def test_run_stops_before_writing_when_accounts_already_carry_its_time():
+    # If accounts already carry this run's time, a count afterwards could not
+    # tell this run's work from the earlier run's. So nothing is sent.
+    org = FakeOrg()
+    accounts = [make_account(1), make_account(2)]
+    run(org, accounts, scored_at=FROZEN)
+    writes_before = [kind for kind, _ in org.requests].count("write")
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, lower_scores(accounts), scored_at=FROZEN)
+    assert "already carry this run's time" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, 0, 2)
+    assert [kind for kind, _ in org.requests].count("write") == writes_before
+    assert stored_scores(org) == [70]
+
+
+def test_run_counts_before_writing_and_after():
+    org = FakeOrg()
+    run(org, [make_account(1), make_account(2)], scored_at=FROZEN)
+    assert [kind for kind, _ in org.requests] == ["query", "count", "write", "count"]
+
+
+def test_count_before_writing_that_cannot_be_done_sends_no_write():
+    org = FakeOrg()
+    org.count_script = [FakeResponse(503, [{"errorCode": "SERVER_UNAVAILABLE", "message": "Try again later"}])]
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert "SERVER_UNAVAILABLE" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, 0, 2)
+    assert [kind for kind, _ in org.requests] == ["query", "count"]
+
+
+def test_rejection_by_salesforce_fails_the_run_even_if_the_count_matches():
+    # Salesforce said no. A count that happens to equal the number scored
+    # must not turn that into a success.
+    org = FakeOrg()
+    org.reject["ACC-0002"] = "Tier: bad value for restricted picklist field: B"
+    org.count_script = [0, 3]
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2), make_account(3)])
+    assert "ACC-0002" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (3, None, None)
+    # Salesforce refused, so the advice to simply run again does not belong here.
+    assert "3 account(s) carry this run's time" in str(caught.value)
+    assert "run it again" not in str(caught.value).lower()
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"compositeResponse": [None]},
+        {"compositeResponse": [{"httpStatusCode": 200, "body": [None, None]}]},
+        {"compositeResponse": [{"httpStatusCode": 200, "body": [
+            {"success": True, "errors": []}, {"success": False, "errors": [None]}]}]},
+    ],
+)
+def test_write_reply_with_empty_pieces_fails_cleanly_and_still_reads_back(reply):
+    org = FakeOrg()
+    org.write_reply = FakeResponse(200, reply)
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, 0, 2)
+    assert [kind for kind, _ in org.requests] == ["query", "count", "write", "count"]
+
+
+def test_overlapping_run_is_not_vouched_for_when_its_own_write_gets_no_answer():
+    # Two runs overlap in the same second. This run counts zero accounts with
+    # its time, as it should. Then, before its write is handled, the OTHER run
+    # saves 300 accounts (score 70) with the same time. This run's write
+    # (score 50) then gets no answer and is not saved. The count afterwards is
+    # 300, but those are the other run's accounts.
+    org = FakeOrg()
+    accounts = [make_account(number) for number in range(1, 301)]
+
+    def other_run_saves_first():
+        for account in accounts:
+            org.accounts[account["id"]] = {
+                "Sample_Id__c": account["id"], "Name": account["name"], "Score__c": 70, "Last_Scored__c": FROZEN,
+            }
+
+    org.before_write = other_run_saves_first
+    org.time_out_on_write = "before saving"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, lower_scores(accounts), scored_at=FROZEN)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (300, None, None)
+    assert "no answer" in str(caught.value).lower()
+    assert stored_scores(org) == [70]  # this run's score of 50 was never saved, and the run did not claim it was
+    # Both counts were made, and the one before the write was zero.
+    assert [kind for kind, _ in org.requests] == ["query", "count", "write", "count"]
+
+
+def test_program_ends_with_an_error_and_unknown_counts_when_the_write_gets_no_answer(tmp_path, capsys):
+    org = FakeOrg()
+    org.time_out_on_write = "after saving"
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code)
+    printed = capsys.readouterr().out
+    assert "Scored 2, written unknown, failed unknown." in printed
+    assert "failed 0" not in printed
+
+
+def test_write_with_no_answer_and_a_read_back_that_cannot_be_done_says_to_run_again():
+    org = FakeOrg()
+    org.time_out_on_write = "before saving"
+    org.count_script = [0, FakeResponse(503, [{"errorCode": "SERVER_UNAVAILABLE", "message": "Try again later"}])]
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, None, None)
+    message = str(caught.value)
+    assert "no answer" in message.lower()
+    assert "The read back also failed" in message and "SERVER_UNAVAILABLE" in message
+    assert "The engine cannot tell whether anything was written." in message
+    assert "Run it again; a rerun is safe." in message
+    assert "test-token" not in message
+
+
+def test_write_with_no_answer_and_accounts_carrying_the_time_says_to_run_again():
+    org = FakeOrg()
+    org.time_out_on_write = "after saving"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, None, None)
+    message = str(caught.value)
+    assert "2 account(s) carry this run's time, but the engine cannot prove this run wrote them." in message
+    assert "Run it again; a rerun is safe." in message
+
+
+def test_rejection_by_salesforce_does_not_say_to_run_again():
+    # Salesforce answered and refused a record. Running again would be refused
+    # again, so the message must name the record, not suggest a rerun.
+    org = FakeOrg()
+    org.reject["ACC-0002"] = "Tier: bad value for restricted picklist field: B"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2), make_account(3)])
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (3, 0, 3)
+    message = str(caught.value)
+    assert "ACC-0002" in message
+    assert "run it again" not in message.lower()
+
+
+def test_rejection_with_a_read_back_that_cannot_be_done_does_not_say_to_run_again():
+    org = FakeOrg()
+    org.reject["ACC-0002"] = "Tier: bad value for restricted picklist field: B"
+    org.count_script = [0, FakeResponse(503, [{"errorCode": "SERVER_UNAVAILABLE", "message": "Try again later"}])]
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2), make_account(3)])
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (3, None, None)
+    message = str(caught.value)
+    assert "ACC-0002" in message and "The read back also failed" in message
+    assert "run it again" not in message.lower()
+
+
+def test_program_prints_the_rerun_advice_when_the_write_gets_no_answer_and_nothing_was_saved(tmp_path, capsys):
+    org = FakeOrg()
+    org.time_out_on_write = "before saving"
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code)
+    assert "Run it again; a rerun is safe." in str(stopped.value.code)
+    assert "Scored 2, written 0, failed 2." in capsys.readouterr().out
