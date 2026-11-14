@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Territory_Note__c</fullName>
+    <description>Why the account is outside its BDR's territory, or why the territory could not be checked. Empty when the account is in territory. Written by the scoring engine on every run.</description>
+    <externalId>false</externalId>
+    <label>Territory Note</label>
+    <length>255</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

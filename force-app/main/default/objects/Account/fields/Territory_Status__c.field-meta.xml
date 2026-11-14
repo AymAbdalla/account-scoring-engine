@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Territory_Status__c</fullName>
+    <description>Whether the account sits inside the territory (segment and region) of the BDR who holds it. Written by the scoring engine on every run. The engine only flags; it never moves an account.</description>
+    <label>Territory Status</label>
+    <required>false</required>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>In territory</fullName>
+                <default>false</default>
+                <label>In territory</label>
+            </value>
+            <value>
+                <fullName>Outside territory</fullName>
+                <default>false</default>
+                <label>Outside territory</label>
+            </value>
+            <value>
+                <fullName>Not checked</fullName>
+                <default>false</default>
+                <label>Not checked</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>
