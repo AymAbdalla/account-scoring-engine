@@ -130,9 +130,13 @@ Each step ships as its own release with a changelog entry, and gets a new demo v
 
 **Later, in no fixed order**
 
-- **Territory reassignment:** when an account sits outside its rep's territory, propose a rep who covers it and let a person approve the move. The engine never changes an owner by itself.
+- **Territory reassignment:** when an account sits outside its rep's territory, propose a rep who covers it and let a person approve the move. The engine never moves an account that already has a rep by itself.
+- **Score what is already in Salesforce, in three steps:**
+  1. Read the accounts BDRs own from Salesforce and score them, including ones a BDR or RevOps adds. Today the engine scores sample accounts from its own file.
+  2. Score unassigned accounts (UAR) and every other account too, to watch which ones reach Tier A or B.
+  3. Assign those to a BDR automatically. The tier that triggers assignment is a setting: it starts at A and B, and tightens to A only if too many accounts qualify.
 - **Real signals:** a signal listener watches public sources for hiring and leadership changes and feeds the engine, replacing the sample flags.
 - **Overrides and history:** a person can change a tier with a reason and an end date, with the original score kept, and tier changes are tracked over time.
 - **Measurement:** first a shadow run next to the current process, then meetings held and accepted pipeline per account worked, with coverage shown beside results.
 - **Rules per segment:** each segment gets its own weights in `weights.yaml`, for example more points for multi-country operations in Enterprise than in SMB.
-- **Scale:** rescore only the accounts that changed, plus a 50,000-account test.
+- **Scale:** write with Salesforce's Bulk API 2.0, which Salesforce recommends above 2,000 records and which saves each account by itself and reports the ones that failed. Rescore only the accounts that changed, plus a 50,000-account test.
