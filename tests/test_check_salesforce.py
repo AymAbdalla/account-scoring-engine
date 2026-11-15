@@ -28,15 +28,18 @@ class FakeResponse:
 class FakeOrg:
     """Answers the login, then the request for Account's fields."""
 
-    def __init__(self, login=None, fields=None, crash=None, fields_refusal=None):
+    def __init__(self, login=None, fields=None, crash=None, fields_refusal=None, owner=None, users_refusal=None):
         self.fields_refusal = fields_refusal
+        self.users_refusal = users_refusal
         self.login = login or FakeResponse(200, {
             "access_token": "test-token",
             "instance_url": "https://marker-org.my.salesforce.com",
         })
         names = sorted(load_field_limits()) if fields is None else fields
+        # The standard Account Owner field: settable on create, as read from the real org.
+        owner = {"name": "OwnerId", "createable": True, "updateable": True} if owner is None else owner
         self.fields = FakeResponse(200, {"fields": [
-            {"name": name, "createable": True, "updateable": True} for name in names]})
+            {"name": name, "createable": True, "updateable": True} for name in names] + ([owner] if owner else [])})
         self.crash = crash
 
     def post(self, url, data=None, timeout=None):
@@ -44,7 +47,10 @@ class FakeOrg:
             raise self.crash
         return self.login
 
-    def get(self, url, headers=None, timeout=None):
+    def get(self, url, headers=None, params=None, timeout=None):
+        if url.endswith("/query"):
+            return self.users_refusal or FakeResponse(200, {"done": True, "records": [
+                {"Id": "005MARK00000123AAA", "Name": "Marker Person"}]})
         return self.fields_refusal or self.fields
 
 
@@ -92,5 +98,34 @@ def test_settings_echoed_back_after_login_are_still_hidden(capsys):
     refusal = FakeResponse(401, [{"errorCode": "INVALID_SESSION_ID", "message": echo}])
     with pytest.raises(SystemExit) as stopped:
         main(environ=ENVIRONMENT, http=FakeOrg(fields_refusal=refusal))
-    assert "INVALID_SESSION_ID: Refused for client" in str(stopped.value.code)
+    assert "INVALID_SESSION_ID" in str(stopped.value.code)
+    assert "Refused for client" not in str(stopped.value.code)
+    assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
+
+
+# Account ownership: the engine sets the owner when it first creates an
+# account, so the check also looks at the Account Owner field and at whether
+# the engine can read the users' names. It reads only.
+
+def test_check_reports_that_the_owner_can_be_set_and_user_names_can_be_read(capsys):
+    main(environ=ENVIRONMENT, http=FakeOrg())
+    printed = capsys.readouterr().out
+    assert "Account Owner can be set when an account is created." in printed
+    assert "The names of the active users can be read." in printed
+    assert_identifies_nothing(printed)  # no user's name or id is shown
+
+
+def test_check_fails_when_the_owner_cannot_be_set_on_create():
+    owner = {"name": "OwnerId", "createable": False, "updateable": False}
+    with pytest.raises(SystemExit) as stopped:
+        main(environ=ENVIRONMENT, http=FakeOrg(owner=owner))
+    assert "Salesforce check failed" in str(stopped.value.code)
+    assert "OwnerId" in str(stopped.value.code) and "cannot set" in str(stopped.value.code)
+
+
+def test_check_fails_when_the_user_names_cannot_be_read(capsys):
+    refusal = FakeResponse(403, [{"errorCode": "INSUFFICIENT_ACCESS", "message": LEAK}])
+    with pytest.raises(SystemExit) as stopped:
+        main(environ=ENVIRONMENT, http=FakeOrg(users_refusal=refusal))
+    assert "would not list the active users" in str(stopped.value.code)
     assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)

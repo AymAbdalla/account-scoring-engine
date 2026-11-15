@@ -89,13 +89,13 @@ def test_combine_joins_each_score_to_its_account():
     assert combine(accounts, results) == [make_row(1)]
 
 
-def test_all_300_sample_scores_pass_the_check():
+def test_all_1800_sample_scores_pass_the_check():
     # The real sample data, scored and territory-checked, has nothing to report.
-    # That includes the 3 accounts whose region is unknown.
+    # That includes the 18 accounts whose region is unknown.
     with open("data/accounts.json") as accounts_file:
         accounts = json.load(accounts_file)
     rows = combine(accounts, score_all(accounts, RULES, load_roster(RULES)))
-    assert len(rows) == 300
+    assert len(rows) == 1800
     assert find_problems(rows, LIMITS, RULES) == []
 
 
@@ -230,3 +230,20 @@ def test_account_with_an_unknown_region_has_no_region_in_its_record(exists):
     assert "Region__c" not in record
     assert record.get("Territory_Status__c") == "Not checked"
     assert record.get("Segment__c") == "Mid-Market"
+
+
+# Account ownership (SPEC.md): the owner is set once, when the account is
+# first created, and never sent for an account that already exists.
+
+def test_new_account_with_a_matching_user_is_created_with_that_owner():
+    record = build_record(make_row(1), exists=False, owner_id="005000000000001AAA")
+    assert record["OwnerId"] == "005000000000001AAA"
+    assert record["Name"] == "Sample Company 1"
+
+
+def test_new_account_with_no_matching_user_carries_no_owner():
+    assert "OwnerId" not in build_record(make_row(1), exists=False)
+
+
+def test_existing_account_is_never_sent_an_owner():
+    assert "OwnerId" not in build_record(make_row(1), exists=True, owner_id="005000000000001AAA")

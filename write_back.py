@@ -7,14 +7,24 @@ The steps, in order:
      field; existing ones get only the fields the engine owns.
   4. Count the accounts that already carry this run's time. It must be zero,
      so that the count afterwards can only be this run's work.
-  5. Write all the records in one all-or-nothing request.
-  6. Read back: count the accounts that carry this run's time. It must equal
-     the number scored.
+     When any account is new, also read the names of the active users: a
+     new account whose BDR has the same name as a user is created with that
+     user as its owner. An existing account's owner is never touched.
+  5. Write the records. One all-or-nothing request holds at most 1,000, so
+     the 1,800 sample accounts go as two requests, in ranking order: 1,000,
+     then 800. Each request is all or nothing by itself.
+  6. Read back after every request: count the accounts that carry this run's
+     time. It must equal the number sent so far (1,000, then 1,800). The
+     engine stops at the first request that fails or whose count is wrong.
   7. Print the scored, written and failed counts. Any failure ends with an
      error, so a scheduled run shows up as failed.
 
+If Salesforce refuses the second request, the first 1,000 accounts stay saved
+and the other 800 keep the last run's scores, until the run is repeated. The
+engine says how many were written and how many were not.
+
 It is safe to run twice: accounts are matched on their Sample Id, so a second
-run updates the same 300 accounts and creates no duplicates.
+run updates the same 1,800 accounts and creates no duplicates.
 
 Run from the project folder:  python write_back.py
 To score another file:        python write_back.py --accounts <file>
@@ -31,9 +41,11 @@ from dotenv import load_dotenv
 
 from run_local import score_all
 from salesforce.client import (
+    MAX_RECORDS_PER_REQUEST,
     NoAnswer,
     SalesforceError,
     count_scored_at,
+    find_active_users,
     find_existing_ids,
     log_in,
     read_settings,
@@ -129,57 +141,113 @@ def write_back(accounts, rules, roster, limits, session, http=requests, say=prin
             "from an earlier one. Nothing was sent. Run it again.".format(already_stamped, run_time),
             scored=scored,
         )
-    records = [build_record(row, exists=row["id"].lower() in existing) for row in rows]
-    already_there = sum(1 for row in rows if row["id"].lower() in existing)
-    say("Salesforce already has {} of these accounts; {} are new.".format(already_there, scored - already_there))
+    new_rows = [row for row in rows if row["id"].lower() not in existing]
+    say("Salesforce already has {} of these accounts; {} are new.".format(scored - len(new_rows), len(new_rows)))
 
-    # 5. Write, all or nothing.
-    write_error = None
-    try:
-        write_records(session, records, http)
-    except SalesforceError as error:
-        write_error = error
+    # Who owns a new account? An active Salesforce user with the same name as
+    # its BDR. With no such user, the owner is left out and Salesforce gives
+    # the account to the engine's own user. Only new accounts get an owner,
+    # so the users are read only when something is new.
+    owners = {}
+    if new_rows:
+        try:
+            users = find_active_users(session, http)
+        except SalesforceError as error:
+            raise WriteBackFailed("{} Nothing was sent.".format(error), scored=scored)
+        new_bdrs = sorted({row["bdr"] for row in new_rows})
+        shared = [bdr for bdr in new_bdrs if len(users.get(bdr, [])) > 1]
+        if shared:
+            # Guessing an owner would be worse than stopping.
+            raise WriteBackFailed(
+                "More than one active Salesforce user is named {}, so the engine cannot tell who should own "
+                "that BDR's new accounts. Nothing was sent.".format(", ".join('"{}"'.format(bdr) for bdr in shared)),
+                scored=scored,
+            )
+        owners = {bdr: users[bdr][0] for bdr in new_bdrs if bdr in users}
+        owned = sum(1 for row in new_rows if row["bdr"] in owners)
+        say("{} new account(s) get a Salesforce user as owner; {} go to the engine's own user.".format(
+            owned, len(new_rows) - owned))
+    records = [
+        build_record(row, exists=row["id"].lower() in existing, owner_id=owners.get(row["bdr"]))
+        for row in rows
+    ]
 
-    # 6. Read back, whatever happened. Salesforce saying "saved" proves the
-    #    write; the count is a second check on it, never a substitute for it.
-    #
-    #    When the write request got no answer at all, the run can simply be
-    #    tried again, and the message says so. When Salesforce answered and
-    #    refused, running again would be refused again, so it does not.
-    no_answer = isinstance(write_error, NoAnswer)
-    try:
-        written = count_scored_at(session, run_time, http)
-    except SalesforceError as error:
-        # The engine cannot tell how many were written, and says so.
-        reason = "{}. The read back also failed: {}. The engine cannot tell whether anything was written.".format(
-            write_error or "The write was sent", error
-        )
-        if no_answer:
-            reason += " " + RUN_AGAIN
-        raise WriteBackFailed(reason, scored=scored, written=None)
+    # 5. Write, one all-or-nothing request at a time, in ranking order.
+    #    6. Read back after each one, whatever happened. Salesforce saying
+    #    "saved" proves the write; the count is a second check on it, never a
+    #    substitute for it.
+    requests_to_send = [
+        records[start:start + MAX_RECORDS_PER_REQUEST] for start in range(0, len(records), MAX_RECORDS_PER_REQUEST)
+    ]
+    several = len(requests_to_send) > 1
+    written = 0  # accounts in requests that Salesforce saved AND the count confirmed
+    for number, request in enumerate(requests_to_send, start=1):
+        which = "Request {} of {}".format(number, len(requests_to_send))
+        write_error = None
+        try:
+            write_records(session, request, http)
+        except SalesforceError as error:
+            write_error = error
 
-    if write_error:
-        # The write did not end in a clean "saved" from Salesforce, so the run
-        # fails. That includes a request that got no answer: it may have been
-        # saved, but a count cannot prove the accounts came from THIS run
-        # (another run in the same second would look the same).
-        if written == 0:
-            reason = str(write_error)
+        # When the write request got no answer at all, the run can simply be
+        # tried again, and the message says so. When Salesforce answered and
+        # refused, running again would be refused again, so it does not.
+        no_answer = isinstance(write_error, NoAnswer)
+        try:
+            counted = count_scored_at(session, run_time, http)
+        except SalesforceError as error:
+            # The engine cannot tell how many were written, and says so.
+            reason = "{}. The read back also failed: {}. The engine cannot tell whether anything was written.".format(
+                write_error or "The write was sent", error
+            )
             if no_answer:
-                reason += ". No account carries this run's time, so nothing was written. " + RUN_AGAIN
-            raise WriteBackFailed(reason, scored=scored, written=0)
-        reason = "{}. {} account(s) carry this run's time, but the engine cannot prove this run wrote them.".format(
-            write_error, written
-        )
-        if no_answer:
-            reason += " " + RUN_AGAIN
-        raise WriteBackFailed(reason, scored=scored, written=None)
-    if written != scored:
-        raise WriteBackFailed(
-            "The read back found {} accounts with this run's time, but {} were scored.".format(written, scored),
-            scored=scored,
-            written=written,
-        )
+                reason += " " + RUN_AGAIN
+            raise WriteBackFailed(reason, scored=scored, written=None)
+
+        if write_error:
+            # The write did not end in a clean "saved" from Salesforce, so the
+            # run fails and nothing more is sent. That includes a request that
+            # got no answer: it may have been saved, but a count cannot prove
+            # the accounts came from THIS run (another run in the same second
+            # would look the same).
+            if counted == written:
+                # The count has not moved, so nothing from this request was saved.
+                if written == 0:
+                    reason = str(write_error)
+                    if no_answer:
+                        reason += ". No account carries this run's time, so nothing was written. " + RUN_AGAIN
+                    raise WriteBackFailed(reason, scored=scored, written=0)
+                # An earlier request is saved and this one is not: Salesforce
+                # now holds a mix of this run's scores and the last run's.
+                reason = (
+                    "{} failed, and nothing in it was saved. {}. The first {} account(s) were written and stay "
+                    "saved; the other {} were not written, so Salesforce holds a mix of this run and the last "
+                    "one until the run is repeated.".format(which, write_error, written, scored - written)
+                )
+                reason += " " + (RUN_AGAIN if no_answer else "Once the cause is fixed, a rerun is safe.")
+                raise WriteBackFailed(reason, scored=scored, written=written)
+            reason = "{}. {} account(s) carry this run's time, but the engine cannot prove this run wrote them.".format(
+                write_error, counted
+            )
+            if no_answer:
+                reason += " " + RUN_AGAIN
+            raise WriteBackFailed(reason, scored=scored, written=None)
+
+        sent_so_far = written + len(request)
+        if counted != sent_so_far:
+            if several:
+                reason = (
+                    "After {} the read back found {} accounts with this run's time, but {} had been sent. "
+                    "Nothing more was sent.".format(which.lower(), counted, sent_so_far)
+                )
+            else:
+                reason = "The read back found {} accounts with this run's time, but {} were scored.".format(
+                    counted, scored
+                )
+            raise WriteBackFailed(reason, scored=scored, written=counted)
+        written = sent_so_far
+        if several:
+            say("{}: {} accounts written; {} now carry this run's time.".format(which, len(request), written))
 
     # 7. Report.
     say("Read back: {} accounts carry this run's time, {}.".format(written, run_time))

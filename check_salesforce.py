@@ -1,4 +1,5 @@
-"""Checks that the engine can log in to Salesforce and use its ten fields.
+"""Checks that the engine can log in to Salesforce and use its ten fields,
+and that it can set an owner on a new account and read the users' names.
 
 Run this before the first write-back, and any time a login problem is suspected.
 It reads from Salesforce only; it changes nothing there. It never prints the
@@ -13,7 +14,15 @@ import traceback
 import requests
 from dotenv import load_dotenv
 
-from salesforce.client import SalesforceError, find_field_problems, log_in, read_account_fields, read_settings
+from salesforce.client import (
+    SalesforceError,
+    find_active_users,
+    find_field_problems,
+    find_owner_problems,
+    log_in,
+    read_account_fields,
+    read_settings,
+)
 from salesforce.records import load_field_limits
 
 
@@ -46,6 +55,17 @@ def check(settings, http):
     if problems:
         raise SalesforceError("Field check failed:\n  " + "\n  ".join(problems))
     print("All {} fields are found and editable.".format(len(needed)))
+
+    # The engine sets the owner once, when it first creates an account, to
+    # the Salesforce user with the same name as the account's BDR. That needs
+    # two things: the Account Owner field may be set on create, and the
+    # users' names can be read. No name or id is printed.
+    owner_problems = find_owner_problems(fields)
+    if owner_problems:
+        raise SalesforceError("Owner check failed:\n  " + "\n  ".join(owner_problems))
+    print("Account Owner can be set when an account is created.")
+    find_active_users(session, http)
+    print("The names of the active users can be read.")
 
 
 def where_it_happened(error):

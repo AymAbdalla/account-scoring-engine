@@ -8,9 +8,10 @@ Nothing in this file talks to Salesforce. It does three jobs:
    region and territory status against the lists in weights.yaml, and the text
    against the field lengths. One bad record means nothing gets written
    (write-back rule 4).
-3. Builds the record for each account. A new account gets every field. An
-   account that already exists gets only the fields the engine owns, so its
-   Name and BDR are never overwritten (write-back rule 2).
+3. Builds the record for each account. A new account gets every field, and
+   an owner when a Salesforce user has its BDR's name. An account that already
+   exists gets only the fields the engine owns, so its Name, BDR and owner
+   are never overwritten (write-back rule 2).
 """
 from datetime import datetime
 from pathlib import Path
@@ -157,10 +158,12 @@ def find_problems(rows, limits, rules):
     return problems
 
 
-def build_record(row, exists):
+def build_record(row, exists, owner_id=None):
     """Shape one checked row into the record Salesforce expects.
 
     exists=True means the account is already in Salesforce.
+    owner_id is the Salesforce user who should own a NEW account, or None to
+    leave the choice to Salesforce (it then picks the engine's own user).
     """
     record = {
         "attributes": {"type": "Account"},
@@ -171,6 +174,10 @@ def build_record(row, exists):
         # Salesforce leaves them as they are. (Sending a blank would wipe them.)
         record["Name"] = row["name"]
         record["BDR__c"] = row["bdr"]
+        if owner_id is not None:
+            # Set once, here, and never again: ownership is managed in
+            # Salesforce, not by a scoring job.
+            record["OwnerId"] = owner_id
 
     # The fields the engine owns, written on every run.
     record["Score__c"] = row["score"]

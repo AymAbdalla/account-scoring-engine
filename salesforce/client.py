@@ -9,7 +9,11 @@ request. A fresh token is fetched on every run and never saved.
 The id, the secret and the token are never printed. Neither is anything that
 identifies the org: its address, a Salesforce id or a user name. A run's output
 ends up in a GitHub log, which anyone can read once the repository is public,
-so every message built from a Salesforce reply passes through `clean` first.
+so a message built from a Salesforce reply shows only Salesforce's error code,
+never its wording. The wording is free text and can hold a person's name, and
+no pattern can tell a name from any other words. The code, the account's
+Sample Id and the field name say what to fix. Whatever is shown still passes
+through `clean` first.
 
 Every function here that talks to the network takes `http` as an argument. In
 normal use that is the `requests` library; in the tests it is a stand-in that
@@ -19,16 +23,25 @@ import re
 
 import requests
 
-from salesforce.records import is_utc_time
+from salesforce.records import is_utc_time, load_field_limits
 
 API_VERSION = "v68.0"
 TIMEOUT_SECONDS = 30  # give up on a request that gets no answer in this time
 MAX_RECORDS_PER_BATCH = 200  # Salesforce's limit for one batch of records
-MAX_BATCHES_PER_REQUEST = 5  # a cautious cap for this project (1,000 records); six batches in one request worked in a test
+# Salesforce's REST guide says five batches is the most one request may hold.
+# A test in this project's org on 2026-11-14 accepted six, but the engine
+# stays at the documented five.
+MAX_BATCHES_PER_REQUEST = 5
+MAX_RECORDS_PER_REQUEST = MAX_RECORDS_PER_BATCH * MAX_BATCHES_PER_REQUEST  # 1,000: the most one all-or-nothing request holds
 ROLLED_BACK = "ALL_OR_NONE_OPERATION_ROLLED_BACK"  # on a record: another record was bad
 HALTED = "PROCESSING_HALTED"  # on a batch: another batch was bad
 SETTING_NAMES = ["SF_INSTANCE_URL", "SF_CLIENT_ID", "SF_CLIENT_SECRET"]
-MAX_MESSAGE_LENGTH = 300  # longest piece of Salesforce's own text that is repeated
+MAX_MESSAGE_LENGTH = 300  # longest piece of text `clean` lets through
+# What one of Salesforce's error codes looks like: INVALID_SESSION_ID or
+# invalid_grant. All capitals or all small letters, with digits and
+# underscores, and no spaces. Anything else is not repeated: it could be a
+# name ("Dana", "Dana Lee") or an id.
+ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,79}|[a-z][a-z0-9_]{0,79}")
 REASONS_SHOWN = 3
 
 # The settings the engine logged in with. After the login they are no longer
@@ -64,8 +77,13 @@ def clean(text, holding=None):
     """Make a piece of Salesforce's text safe to print in a public log.
 
     Removes the values the engine is holding (the settings or the session),
-    then anything shaped like a user name, a web address, a token or a
-    Salesforce id. Puts the text on one line, so it cannot start a line with
+    then anything shaped like a login name, a web address, a token or a
+    Salesforce id.
+
+    This cannot catch a person's plain name, which has no shape. That is why
+    Salesforce's free-text messages are never passed through here and shown:
+    see `reason_given`. `clean` is the second line of defence, applied to the
+    error codes that ARE shown. Puts the text on one line, so it cannot start a line with
     "::" (GitHub reads that as a command), and cuts it to a fixed length.
     """
     text = str(text)
@@ -85,23 +103,41 @@ def clean(text, holding=None):
     return text
 
 
+def safe_code(code, holding=None):
+    """Return one of Salesforce's error codes if it is safe to show, or None."""
+    if not isinstance(code, str) or not ERROR_CODE.fullmatch(code) or SALESFORCE_ID.fullmatch(code):
+        return None
+    cleaned = clean(code, holding)
+    return cleaned if cleaned == code else None
+
+
 def reason_given(answer, holding=None):
-    """Pick Salesforce's error codes and messages out of a refusal, cleaned.
+    """Pick Salesforce's error codes out of a refusal. Its wording is never repeated.
 
     Salesforce refuses with a list of {errorCode, message}, or at login with
-    {error, error_description}. The rest of the reply is never repeated.
+    {error, error_description}. Only the code is shown: the message is free
+    text and could hold a person's name.
     """
     reasons = []
     for item in answer if isinstance(answer, list) else [answer]:
         if not isinstance(item, dict):
             continue
-        code = item.get("errorCode", item.get("error"))
-        message = item.get("message", item.get("error_description"))
-        if isinstance(code, str) and code:
-            reasons.append(clean("{}: {}".format(code, message) if isinstance(message, str) else code, holding))
+        code = safe_code(item.get("errorCode", item.get("error")), holding)
+        if code and code not in reasons:
+            reasons.append(code)
     if not reasons:
         return "Salesforce gave no reason the engine could read"
     return "; ".join(reasons[:REASONS_SHOWN])
+
+
+def field_names(names):
+    """The fields Salesforce blames for an error, keeping only the engine's own.
+
+    Returns text like " (Tier__c)", or "" when there is none to show.
+    """
+    known = set(load_field_limits()) | {"Name", "OwnerId"}
+    shown = [name for name in names if isinstance(name, str) and name in known] if isinstance(names, list) else []
+    return " ({})".format(", ".join(shown)) if shown else ""
 
 
 def read_settings(environ):
@@ -212,53 +248,97 @@ def call_salesforce(send, doing_what):
         raise NoAnswer("Salesforce gave no answer while {} ({})".format(doing_what, type(error).__name__))
 
 
-def find_existing_ids(session, http=requests):
-    """Return the Sample Ids of the accounts Salesforce already has.
+def read_every_page(session, query, what, http=requests):
+    """Run a query and hand over every record of the answer, one at a time.
 
     Salesforce answers long lists a page at a time, so this keeps asking for
-    the next page until there are none left.
+    the next page until there are none left. The records of one page are
+    handed over before the next page is asked for, so the caller has seen
+    them by the time a later page can fail. `what` names the list in plain
+    words for the error messages, for example "the existing accounts".
     """
     headers = {"Authorization": "Bearer " + session["access_token"]}
     url = "{}/services/data/{}/query".format(session["instance_url"], API_VERSION)
-    params = {"q": "SELECT Sample_Id__c FROM Account WHERE Sample_Id__c != null"}
-    ids = set()
+    params = {"q": query}
+    wrong_shape = SalesforceError("Salesforce's list of {} was not in the expected shape".format(what))
     while True:
         response = call_salesforce(
             lambda: http.get(url, headers=headers, params=params, timeout=TIMEOUT_SECONDS),
-            "reading the existing accounts",
+            "reading {}".format(what),
         )
         answer = read_answer(response)
         if response.status_code != 200 or not isinstance(answer, dict):
             raise SalesforceError(
-                "Salesforce would not list the existing accounts (HTTP {}): {}".format(
-                    response.status_code, reason_given(answer, session)
+                "Salesforce would not list {} (HTTP {}): {}".format(
+                    what, response.status_code, reason_given(answer, session)
                 )
             )
-        wrong_shape = SalesforceError("Salesforce's list of existing accounts was not in the expected shape")
         records = answer.get("records")
-        if not isinstance(records, list):
+        if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
             raise wrong_shape
-        for record in records:
-            if not isinstance(record, dict):
-                raise wrong_shape
-            sample_id = record.get("Sample_Id__c")
-            if sample_id is None:
-                continue  # an account with no Sample Id is not one of ours
-            if not isinstance(sample_id, str):
-                raise wrong_shape
-            ids.add(sample_id)
+        yield from records
         # More pages to come? Salesforce gives the address of the next one.
         next_page = answer.get("nextRecordsUrl")
         if next_page is None:
-            return ids
+            return
         if not isinstance(next_page, str) or not next_page.startswith("/"):
             raise wrong_shape
         url = session["instance_url"] + next_page
         params = None
 
 
+def find_existing_ids(session, http=requests):
+    """Return the Sample Ids of the accounts Salesforce already has."""
+    what = "the existing accounts"
+    ids = set()
+    for record in read_every_page(session, "SELECT Sample_Id__c FROM Account WHERE Sample_Id__c != null", what, http):
+        sample_id = record.get("Sample_Id__c")
+        if sample_id is None:
+            continue  # an account with no Sample Id is not one of ours
+        if not isinstance(sample_id, str):
+            raise SalesforceError("Salesforce's list of {} was not in the expected shape".format(what))
+        ids.add(sample_id)
+    return ids
+
+
+def find_active_users(session, http=requests):
+    """Return the active Salesforce users by name: {"Dana Lee": ["005..."]}.
+
+    The engine uses this once, when it first creates an account: a user with
+    the same name as the account's BDR becomes its owner. A name can belong
+    to more than one user, so each name holds a list of ids.
+
+    The ids go into the records the engine writes, so only text shaped like a
+    Salesforce id is let through. Neither the names nor the ids are printed.
+    """
+    what = "the active users"
+    users = {}
+    for record in read_every_page(session, "SELECT Id, Name FROM User WHERE IsActive = true", what, http):
+        user_id, name = record.get("Id"), record.get("Name")
+        if not isinstance(name, str) or not isinstance(user_id, str) or not SALESFORCE_ID.fullmatch(user_id):
+            raise SalesforceError("Salesforce's list of {} was not in the expected shape".format(what))
+        users.setdefault(name, []).append(user_id)
+    return users
+
+
+def find_owner_problems(fields):
+    """Check that the engine may set the Account Owner when it creates an account. Empty list means all good.
+
+    Only "createable" matters: the engine never changes the owner of an
+    account that already exists.
+    """
+    if "OwnerId" not in fields:
+        return ["OwnerId: the engine's user cannot see the Account Owner field"]
+    if not fields["OwnerId"].get("createable"):
+        return ["OwnerId: the engine's user cannot set the Account Owner when it creates an account"]
+    return []
+
+
 def write_records(session, records, http=requests):
-    """Create or update the accounts in Salesforce, all or nothing.
+    """Create or update the accounts in Salesforce, in ONE all-or-nothing request.
+
+    One request holds at most 1,000 records. A bigger run is cut into several
+    requests by write_back.py, which calls this once for each.
 
     Salesforce takes at most 200 records in one batch, so the records are split
     into batches. All the batches travel in ONE request with "all or none"
@@ -274,7 +354,7 @@ def write_records(session, records, http=requests):
     if len(batches) > MAX_BATCHES_PER_REQUEST:
         raise SalesforceError(
             "{} records is more than one all-or-nothing request can hold ({})".format(
-                len(records), MAX_RECORDS_PER_BATCH * MAX_BATCHES_PER_REQUEST
+                len(records), MAX_RECORDS_PER_REQUEST
             )
         )
     upsert_address = "/services/data/{}/composite/sobjects/Account/Sample_Id__c".format(API_VERSION)
@@ -332,8 +412,10 @@ def write_records(session, records, http=requests):
             anything_failed = True
             for item in results if isinstance(results, list) else []:
                 # "Processing halted" only means some OTHER batch was bad. Keep the real causes.
-                if isinstance(item, dict) and item.get("errorCode") and item["errorCode"] != HALTED:
-                    reasons.append(clean("{}: {}".format(item["errorCode"], item.get("message")), session))
+                if isinstance(item, dict) and item.get("errorCode") != HALTED:
+                    code = safe_code(item.get("errorCode"), session)
+                    if code:
+                        reasons.append(code)
             continue
         for record, result in zip(batch, results):
             # Only a plain yes counts. Text such as "false", or a missing value, does not.
@@ -344,7 +426,9 @@ def write_records(session, records, http=requests):
             for error in errors if isinstance(errors, list) else []:
                 # "Rolled back" only means some OTHER record was bad. Keep the real causes.
                 if isinstance(error, dict) and error.get("statusCode") != ROLLED_BACK:
-                    reasons.append("{}: {}".format(record["Sample_Id__c"], clean(error.get("message"), session)))
+                    # The account, Salesforce's code and the field. Never its wording.
+                    code = safe_code(error.get("statusCode"), session) or "a reason the engine does not repeat"
+                    reasons.append("{}: {}{}".format(record["Sample_Id__c"], code, field_names(error.get("fields"))))
     if anything_failed:
         detail = "; ".join(reasons[:5]) if reasons else "Salesforce gave no reason"
         raise SalesforceError("Salesforce rejected the write and saved nothing. {}".format(detail))

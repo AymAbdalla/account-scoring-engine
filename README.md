@@ -4,7 +4,7 @@
 
 ▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md)
 
-**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested. The Run button on GitHub is proven with real runs, including a forced failure. The weekday schedule is in place but has not yet been seen running. The dashboard and the demo video are still to come before v0.1.0 is released.
+**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 accounts, including a forced failure; a GitHub run at 1,800 is still to come. The weekday schedule is in place but has not yet been seen running. The dashboards and the demo video are still to come before v0.1.0 is released.
 
 _Dashboard screenshot goes here at release._
 
@@ -21,6 +21,7 @@ GitHub starts the engine, so nothing in a run needs a person, a laptop or a chat
 - **Rules live in one file.** `weights.yaml` holds the segment bands, the regions and their countries, five rules worth 100 points and the tier cutoffs. Changing a weight changes no code, and every score records which rules version made it.
 - **Every score explains itself.** Each account gets a score, a tier (A to D) and up to three rules that earned it the most points, in plain English. An account that matched no rule says "No rules matched".
 - **Built to run unattended.** One command scores all accounts and writes the results into Salesforce. It only updates the fields it owns, it's safe to run twice, and it fails loudly if anything goes wrong. A GitHub workflow runs that command on a schedule and on demand, and a failed run shows red.
+- **Each BDR owns their accounts.** When the engine first creates an account, a Salesforce user with the same name as the account's BDR becomes its owner. After that the engine never touches the owner.
 
 ## Quickstart
 
@@ -34,8 +35,8 @@ To write the scores into a Salesforce Developer org as well:
 5. In Salesforce Setup, create a user for the engine on the Salesforce Integration licence, give it the Salesforce API Integration permission set licence, and assign it the `Scoring_Engine` permission set. The engine logs in as this user, which can read, create and edit accounts but not delete them.
 6. In Setup, create an External Client App with the client credentials flow switched on, running as that user.
 7. Copy `.env.example` to `.env` and fill in the org address and the app's key and secret. Git ignores `.env`.
-8. Check the connection: `python check_salesforce.py` (reads only)
-9. Write and read back: `python write_back.py` (creates the 300 accounts the first time, then updates the same 300 on every later run)
+8. Check the connection: `python check_salesforce.py` (reads only; it also confirms the engine can set an owner on a new account)
+9. Write and read back: `python write_back.py` (creates the 1,800 accounts the first time, then updates the same 1,800 on every later run)
 
 ## Running it on GitHub
 
@@ -55,13 +56,24 @@ To set it up in your own copy:
 
 Things worth knowing:
 
-- **A red run means look.** Nothing retries by itself. A failure before the write, or a write Salesforce refuses, changes nothing. If a write is sent and Salesforce never answers, the engine says so; running it again is safe.
+- **A red run means look.** Nothing retries by itself. A failure before the write changes nothing. The 1,800 accounts go as two requests, and each one is saved whole or not at all: if Salesforce refuses the first, nothing changes; if it refuses the second, the first 1,000 stay saved and the engine says how many accounts were written and how many were not. If a write is sent and Salesforce never answers, the engine says so. In every case running it again is safe.
 - **The schedule can start a few minutes late**, because GitHub queues scheduled runs. The Run button is the way to catch up.
 - **Only two steps get the credentials**: the connection check and the write. The step that installs libraries does not.
-- **Run logs are written to be safe to read in public.** The engine never prints the org's address, and messages built from Salesforce replies are cleaned of addresses, ids and user names.
+- **Run logs are written to be safe to read in public.** The engine never prints the org's address, and a message built from a Salesforce reply shows only Salesforce's error code, the account's Sample Id and the field. Salesforce's own wording is never repeated, because it can hold a person's name.
 - **To switch the schedule off:** `gh workflow disable score-accounts.yml`. To switch it back on: `gh workflow enable score-accounts.yml`.
 
 All data in this repo is generated sample data. Names come from a fake-data library, so any match with a real company or person is a coincidence.
+
+## Why 1,800 accounts, and how it scales
+
+The sample is 60 BDRs with 30 accounts each. Two limits belong to the free demo org, not to the design:
+
+- **Storage.** A Developer org stores about 2,500 account records, so 1,800 is close to what fits.
+- **Logins.** The org has a handful of spare user licences, so two of the 60 BDRs are real Salesforce users who own their accounts. The other 58 are names on accounts. In a real org every BDR would be a user and nothing else would change.
+
+One limit belongs to the way the engine writes. Salesforce saves a request whole or not at all for up to 1,000 records, so the engine sends 1,800 accounts as two requests, in ranking order, and counts what was saved after each one. A run stops at the first request that fails and reports how many accounts were written.
+
+Above about 2,000 records Salesforce recommends its Bulk API 2.0, which saves each record by itself and reports the ones that failed. That is on the roadmap.
 
 ## What the score means
 
@@ -102,7 +114,7 @@ Three limits worth knowing. The check compares against the BDR in the sample dat
 | Score, Tier, Top Reasons, Last Scored | Engine | writes on every run |
 | Segment, Region, Territory Status, Territory Note | Engine | works out and writes on every run, so a change made by hand is overwritten |
 | Name, BDR | Salesforce (in this demo, loaded once from sample data) | never overwrites |
-| Account Owner | Salesforce | never touches |
+| Account Owner | Salesforce | sets once, when it first creates an account and a Salesforce user has the BDR's name; never changes it afterwards |
 
 ## Roadmap
 
@@ -130,9 +142,13 @@ Each step ships as its own release with a changelog entry, and gets a new demo v
 
 **Later, in no fixed order**
 
-- **Territory reassignment:** when an account sits outside its rep's territory, propose a rep who covers it and let a person approve the move. The engine never changes an owner by itself.
+- **Territory reassignment:** when an account sits outside its rep's territory, propose a rep who covers it and let a person approve the move. The engine never moves an account that already has a rep by itself.
+- **Score what is already in Salesforce, in three steps:**
+  1. Read the accounts BDRs own from Salesforce and score them, including ones a BDR or RevOps adds. Today the engine scores sample accounts from its own file.
+  2. Score unassigned accounts (UAR) and every other account too, to watch which ones reach Tier A or B.
+  3. Assign those to a BDR automatically. The tier that triggers assignment is a setting: it starts at A and B, and tightens to A only if too many accounts qualify.
 - **Real signals:** a signal listener watches public sources for hiring and leadership changes and feeds the engine, replacing the sample flags.
 - **Overrides and history:** a person can change a tier with a reason and an end date, with the original score kept, and tier changes are tracked over time.
 - **Measurement:** first a shadow run next to the current process, then meetings held and accepted pipeline per account worked, with coverage shown beside results.
 - **Rules per segment:** each segment gets its own weights in `weights.yaml`, for example more points for multi-country operations in Enterprise than in SMB.
-- **Scale:** rescore only the accounts that changed, plus a 50,000-account test.
+- **Scale:** write with Salesforce's Bulk API 2.0, which Salesforce recommends above 2,000 records and which saves each account by itself and reports the ones that failed. Rescore only the accounts that changed, plus a 50,000-account test.

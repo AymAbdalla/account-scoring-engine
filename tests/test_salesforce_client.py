@@ -435,14 +435,14 @@ def refused_record():
         (refused_count, "MALFORMED_QUERY"),
         (refused_write_request, "INVALID_FIELD"),
         (refused_batch, "INVALID_FIELD"),
-        (refused_record, "ACC-0002"),
+        (refused_record, "ACC-0002: DUPLICATE_VALUE"),
     ],
 )
 def test_refusal_keeps_salesforces_error_code_and_identifies_nothing(refusal, still_says):
     with pytest.raises(SalesforceError) as caught:
         refusal()
     assert still_says in str(caught.value)
-    assert "Problem for" in str(caught.value)  # Salesforce's own words are kept
+    assert "Problem for" not in str(caught.value)  # Salesforce's own words are never repeated
     assert_identifies_nothing(str(caught.value))
 
 
@@ -486,17 +486,17 @@ def test_salesforce_text_cannot_start_a_line_or_run_on_without_end():
     with pytest.raises(SalesforceError) as caught:
         read_account_fields(SESSION, http=FakeSalesforce(reply))
     text = str(caught.value)
-    assert "INVALID_SESSION_ID" in text and "first line" in text
+    assert "INVALID_SESSION_ID" in text and "first line" not in text
     assert not any(line.lstrip().startswith("::") for line in text.splitlines())
     assert len(text) < 1000
 
 
-def test_field_names_and_plain_words_in_salesforces_text_are_kept():
-    # Only what identifies the org is removed. "Account.Name" has a dot but is not an address.
+def test_salesforces_code_is_kept_and_its_wording_is_left_out():
+    # The code says what went wrong. The wording is free text, so it is not repeated.
     reply = FakeResponse(400, [{"errorCode": "STRING_TOO_LONG", "message": "Account.Name: data value too large (max length=255)"}])
     with pytest.raises(SalesforceError) as caught:
         read_account_fields(SESSION, http=FakeSalesforce(reply))
-    assert "STRING_TOO_LONG: Account.Name: data value too large (max length=255)" in str(caught.value)
+    assert str(caught.value) == "Salesforce would not describe Account (HTTP 400): STRING_TOO_LONG"
 
 
 def test_settings_echoed_back_after_login_are_still_hidden():
@@ -508,5 +508,103 @@ def test_settings_echoed_back_after_login_are_still_hidden():
     reply = FakeResponse(401, [{"errorCode": "INVALID_SESSION_ID", "message": echo}])
     with pytest.raises(SalesforceError) as caught:
         read_account_fields(session, http=FakeSalesforce(reply))
-    assert "INVALID_SESSION_ID: Refused for client" in str(caught.value)
+    assert "INVALID_SESSION_ID" in str(caught.value)
+    assert "Refused for client" not in str(caught.value)
     assert_identifies_nothing(str(caught.value))
+
+
+# --- Reading the active users, to set an owner on a new account -------------
+
+def test_active_users_are_read_page_by_page_and_grouped_by_name():
+    from salesforce.client import find_active_users
+    salesforce = ScriptedSalesforce([
+        FakeResponse(200, {"nextRecordsUrl": "/services/data/v68.0/query/01g-2000", "records": [
+            {"Id": "005000000000001AAA", "Name": "Sample Person"},
+            {"Id": "005000000000002AAA", "Name": "Other Person"}]}),
+        FakeResponse(200, {"done": True, "records": [{"Id": "005000000000003AAA", "Name": "Sample Person"}]}),
+    ])
+    assert find_active_users(SESSION, http=salesforce) == {
+        "Sample Person": ["005000000000001AAA", "005000000000003AAA"],
+        "Other Person": ["005000000000002AAA"],
+    }
+    assert salesforce.sent[0]["params"] == {"q": "SELECT Id, Name FROM User WHERE IsActive = true"}
+    assert salesforce.sent[1]["url"] == "https://example-dev-ed.develop.my.salesforce.com/services/data/v68.0/query/01g-2000"
+
+
+@pytest.mark.parametrize(
+    "records",
+    [
+        [{"Id": 5, "Name": "Sample Person"}],
+        [{"Id": "not an id", "Name": "Sample Person"}],
+        [{"Id": "005000000000001AAA' OR Name != null", "Name": "Sample Person"}],
+        [{"Id": "005000000000001AAA", "Name": None}],
+        [{"Name": "Sample Person"}],
+        ["005000000000001AAA"],
+    ],
+)
+def test_active_user_in_the_wrong_shape_is_an_error(records):
+    # The id goes into the records the engine writes, so only a real
+    # Salesforce id (15 or 18 letters and digits) is let through.
+    from salesforce.client import find_active_users
+    with pytest.raises(SalesforceError, match="active users"):
+        find_active_users(SESSION, http=ScriptedSalesforce([FakeResponse(200, {"done": True, "records": records})]))
+
+
+def test_refused_read_of_the_active_users_shows_a_cleaned_reason():
+    from salesforce.client import find_active_users
+    refusal = FakeResponse(403, [{"errorCode": "INSUFFICIENT_ACCESS", "message": "No access for marker.user@example.com"}])
+    with pytest.raises(SalesforceError) as caught:
+        find_active_users(SESSION, http=ScriptedSalesforce([refusal]))
+    assert "would not list the active users" in str(caught.value)
+    assert "INSUFFICIENT_ACCESS" in str(caught.value)
+    assert "marker" not in str(caught.value)
+
+
+def test_owner_field_check_reports_a_field_that_is_hidden_or_cannot_be_set_on_create():
+    from salesforce.client import find_owner_problems
+    assert find_owner_problems({"OwnerId": {"name": "OwnerId", "createable": True, "updateable": False}}) == []
+    hidden = find_owner_problems({})
+    assert len(hidden) == 1 and "cannot see" in hidden[0]
+    fixed = find_owner_problems({"OwnerId": {"name": "OwnerId", "createable": False, "updateable": True}})
+    assert len(fixed) == 1 and "cannot set" in fixed[0]
+
+
+def test_user_name_read_on_one_page_is_hidden_when_a_later_page_is_refused():
+    # A plain display name is not shaped like an email address or an id, so
+    # no pattern can catch it. Salesforce's wording is left out altogether.
+    from salesforce.client import find_active_users
+    salesforce = ScriptedSalesforce([
+        FakeResponse(200, {"nextRecordsUrl": "/services/data/v68.0/query/01g-2000", "records": [
+            {"Id": "005000000000001AAA", "Name": "Private Manager"}]}),
+        FakeResponse(500, [{"errorCode": "UNKNOWN_EXCEPTION", "message": "Lost the row for Private Manager"}]),
+    ])
+    with pytest.raises(SalesforceError) as caught:
+        find_active_users(SESSION, http=salesforce)
+    assert str(caught.value) == "Salesforce would not list the active users (HTTP 500): UNKNOWN_EXCEPTION"
+    assert "Private" not in str(caught.value)
+
+
+# --- Salesforce's own wording is never repeated ------------------------------
+
+def test_refusal_shows_the_error_code_and_none_of_salesforces_wording():
+    from salesforce.client import count_scored_at
+    refusal = FakeResponse(500, [{"errorCode": "UNKNOWN_EXCEPTION", "message": "Row locked by Private Manager"}])
+    with pytest.raises(SalesforceError) as caught:
+        count_scored_at(SESSION, "2026-11-14T12:00:00Z", http=ScriptedSalesforce([refusal]))
+    assert str(caught.value) == "Salesforce would not count the accounts (HTTP 500): UNKNOWN_EXCEPTION"
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["Private Manager", "Manager", "A01MARK00000123AAA", "PRIVATE-MANAGER", "X" * 81],
+)
+def test_error_code_that_is_not_shaped_like_a_code_is_not_repeated(code):
+    # Only text shaped like one of Salesforce's codes (INVALID_SESSION_ID,
+    # invalid_grant) is shown. Anything else could be a name or an id.
+    from salesforce.client import count_scored_at
+    refusal = FakeResponse(500, [{"errorCode": code, "message": "no matter"}])
+    with pytest.raises(SalesforceError) as caught:
+        count_scored_at(SESSION, "2026-11-14T12:00:00Z", http=ScriptedSalesforce([refusal]))
+    assert str(caught.value) == (
+        "Salesforce would not count the accounts (HTTP 500): Salesforce gave no reason the engine could read"
+    )
