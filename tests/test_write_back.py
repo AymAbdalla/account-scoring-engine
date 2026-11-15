@@ -62,6 +62,7 @@ class FakeOrg:
         self.reject = {}            # Sample Id -> error message Salesforce should give for it
         self.count_script = []      # answers for the next count requests, in order: a number, or a FakeResponse
         self.time_out_on_write = None  # "before saving" or "after saving"
+        self.time_out_only_on_write_number = None  # 2 means only the second write gets no answer; None means every write
         self.before_write = None    # something to do when a write arrives, before handling it
         self.login_reply = None     # a FakeResponse to give instead of a token
         self.query_reply = None     # a FakeResponse to give instead of the list of existing ids
@@ -121,7 +122,9 @@ class FakeOrg:
         self.requests.append(("write", [len(batch) for batch in batches]))
         if self.before_write:
             self.before_write()
-        if self.time_out_on_write == "before saving":
+        write_number = [kind for kind, _ in self.requests].count("write")
+        timing_out = self.time_out_on_write if self.time_out_only_on_write_number in (None, write_number) else None
+        if timing_out == "before saving":
             # The text holds the token on purpose: the engine must not repeat it.
             raise requests.exceptions.Timeout("no answer to request with Bearer test-token")
         if self.write_reply:
@@ -169,7 +172,7 @@ class FakeOrg:
                 self.accounts[stored].update(fields)
                 results.append({"id": "001", "success": True, "created": created, "errors": []})
             parts.append({"httpStatusCode": 200, "referenceId": "batch{}".format(number), "body": results})
-        if self.time_out_on_write == "after saving":
+        if timing_out == "after saving":
             raise requests.exceptions.Timeout("no answer to request with Bearer test-token")
         return FakeResponse(200, {"compositeResponse": parts})
 
@@ -286,15 +289,13 @@ def test_write_that_gets_no_answer_is_never_reported_as_a_success():
     assert "test-token" not in str(caught.value)
 
 
-def test_more_records_than_one_request_can_hold_stops_before_any_write():
-    # Guard under test: the cap in write_records (5 batches of 200). Splitting
-    # across requests would lose all-or-nothing, so the run stops instead.
+def test_one_record_more_than_a_request_can_hold_goes_in_a_second_request():
+    # SPEC.md, write-back rule 4: one all-or-nothing request holds at most
+    # 1,000 records (5 batches of 200), and a larger run is sent as several.
     org = FakeOrg()
-    with pytest.raises(WriteBackFailed) as caught:
-        run(org, [make_account(number) for number in range(1, 1002)])
-    assert "1001 records is more than one all-or-nothing request can hold" in str(caught.value)
-    assert [kind for kind, _ in org.requests if kind == "write"] == []
-    assert org.accounts == {}
+    result, _ = run(org, [make_account(number) for number in range(1, 1002)])
+    assert result == {"scored": 1001, "written": 1001, "failed": 0}
+    assert [detail for kind, detail in org.requests if kind == "write"] == [[200, 200, 200, 200, 200], [1]]
 
 
 def test_no_accounts_at_all_is_a_failure_not_a_silent_success():
@@ -755,3 +756,109 @@ def test_forced_failure_file_stops_the_run_before_anything_is_sent(capsys):
     assert "nothing was sent" in str(stopped.value.code)
     assert "Scored 2, written 0, failed 2." in capsys.readouterr().out
     assert org.requests == [] and org.accounts == {}
+
+
+# 1,800 accounts: two requests, each all or nothing, with a count after each
+# (SPEC.md, write-back rules 4 and 5). Every account here scores the same, so
+# the ranking order is the id order: ACC-0001 to ACC-1000 travel in the first
+# request and ACC-1001 to ACC-1800 in the second.
+
+LATER_RUN = "2026-11-14T13:00:00Z"
+
+
+def make_1800():
+    return [make_account(number) for number in range(1, 1801)]
+
+
+def write_requests(org):
+    return [detail for kind, detail in org.requests if kind == "write"]
+
+
+def test_1800_accounts_go_as_two_requests_with_a_count_after_each():
+    org = FakeOrg()
+    result, printed = run(org, make_1800(), scored_at=FROZEN)
+    assert result == {"scored": 1800, "written": 1800, "failed": 0}
+    assert write_requests(org) == [[200, 200, 200, 200, 200], [200, 200, 200, 200]]
+    # A count before anything is sent, then one after each request.
+    assert [kind for kind, _ in org.requests] == ["query", "count", "write", "count", "write", "count"]
+    assert len(org.accounts) == 1800
+    assert printed[-1] == "Scored 1800, written 1800, failed 0."
+
+
+def test_second_request_refused_keeps_the_first_1000_and_reports_the_other_800_as_not_written():
+    org = FakeOrg()
+    org.reject["ACC-1500"] = "Tier: bad value for restricted picklist field: Z"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, make_1800(), scored_at=FROZEN)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (1800, 1000, 800)
+    assert caught.value.counts_line() == "Scored 1800, written 1000, failed 800."
+    message = str(caught.value)
+    assert "ACC-1500" in message
+    assert "1000" in message and "800" in message
+    assert "rerun is safe" in message
+    # The first request stays saved; nothing from the second one is.
+    assert sorted(org.accounts) == ["ACC-{:04d}".format(number) for number in range(1, 1001)]
+
+    # Running again, once the cause is gone, leaves all 1,800 with one time.
+    org.reject.clear()
+    result, _ = run(org, make_1800(), scored_at=LATER_RUN)
+    assert result == {"scored": 1800, "written": 1800, "failed": 0}
+    assert len(org.accounts) == 1800
+    assert {fields["Last_Scored__c"] for fields in org.accounts.values()} == {LATER_RUN}
+
+
+def test_first_request_refused_sends_no_second_request_and_saves_nothing():
+    org = FakeOrg()
+    org.reject["ACC-0500"] = "Tier: bad value for restricted picklist field: Z"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, make_1800(), scored_at=FROZEN)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (1800, 0, 1800)
+    assert len(write_requests(org)) == 1
+    assert org.accounts == {}
+
+
+def test_second_request_with_no_answer_that_was_saved_reports_written_as_unknown():
+    # Rule 5: it may have been saved, but a count cannot prove the accounts
+    # came from this run, so the engine says it does not know.
+    org = FakeOrg()
+    org.time_out_on_write = "after saving"
+    org.time_out_only_on_write_number = 2
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, make_1800(), scored_at=FROZEN)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (1800, None, None)
+    assert "no answer" in str(caught.value).lower()
+    assert "Run it again; a rerun is safe." in str(caught.value)
+
+
+def test_second_request_with_no_answer_and_nothing_more_saved_reports_the_first_1000():
+    org = FakeOrg()
+    org.time_out_on_write = "before saving"
+    org.time_out_only_on_write_number = 2
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, make_1800(), scored_at=FROZEN)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (1800, 1000, 800)
+    assert "no answer" in str(caught.value).lower()
+    assert "Run it again; a rerun is safe." in str(caught.value)
+
+
+def test_count_that_is_wrong_after_the_first_request_sends_no_second_request():
+    org = FakeOrg()
+    org.count_script = [0, 999]  # none before; then 999 after the first request, where 1,000 were sent
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, make_1800(), scored_at=FROZEN)
+    assert "read back" in str(caught.value).lower()
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (1800, 999, 801)
+    assert len(write_requests(org)) == 1
+
+
+def test_one_bad_record_among_1800_caught_by_the_engines_own_check_sends_nothing():
+    # Guard under test: find_problems, before any request. A repeated id is
+    # valid JSON and scores fine, so nothing earlier stops it.
+    org = FakeOrg()
+    accounts = make_1800()
+    accounts[1499] = make_account(7)  # ACC-0007 now appears twice
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, accounts, scored_at=FROZEN)
+    assert "ACC-0007" in str(caught.value)
+    assert "nothing was sent" in str(caught.value)
+    assert org.requests == []
