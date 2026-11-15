@@ -58,7 +58,7 @@ Things worth knowing:
 - **A red run means look.** Nothing retries by itself. A failure before the write, or a write Salesforce refuses, changes nothing. If a write is sent and Salesforce never answers, the engine says so; running it again is safe.
 - **The schedule can start a few minutes late**, because GitHub queues scheduled runs. The Run button is the way to catch up.
 - **Only two steps get the credentials**: the connection check and the write. The step that installs libraries does not.
-- **Run logs are written to be safe to read in public.** The engine never prints the org's address, and messages built from Salesforce replies are cleaned of addresses, ids and user names.
+- **Run logs are written to be safe to read in public.** The engine never prints the org's address, and a message built from a Salesforce reply shows only Salesforce's error code, the account's Sample Id and the field. Salesforce's own wording is never repeated, because it can hold a person's name.
 - **To switch the schedule off:** `gh workflow disable score-accounts.yml`. To switch it back on: `gh workflow enable score-accounts.yml`.
 
 All data in this repo is generated sample data. Names come from a fake-data library, so any match with a real company or person is a coincidence.

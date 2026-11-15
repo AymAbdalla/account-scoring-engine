@@ -164,7 +164,7 @@ Weekdays at 7:00 AM Eastern, plus a manual Run button (GitHub Actions `workflow_
 
 ## Secrets
 
-Salesforce credentials live in GitHub Actions secrets and a local `.env` file that git ignores. They never go in code, commits or logs. On GitHub they are handed only to the steps that talk to Salesforce. Messages built from Salesforce replies are cleaned of addresses, ids and user names before they are printed, and whole replies are not printed.
+Salesforce credentials live in GitHub Actions secrets and a local `.env` file that git ignores. They never go in code, commits or logs. On GitHub they are handed only to the steps that talk to Salesforce. Messages built from Salesforce replies show only Salesforce's error code, the account's Sample Id and the field name. Salesforce's own wording is never printed, because it is free text that can hold a person's name and no pattern can tell a name from other words. Whole replies are not printed. What is shown is still cleaned of addresses, ids and login names.
 
 ## Done when (v0.1 acceptance)
 
@@ -199,6 +199,7 @@ The rows below were decided by the owner in chat on 2026-11-15. Everything else 
 | The dashboards count every account that has been scored, whoever created it | chat, 2026-11-15: the owner's correction to item 3 |
 | The two write requests go in order and the engine stops at the first that fails | chat, 2026-11-15: agreed as item 4 |
 | A write request with no answer reports the written count as unknown only when the count has moved; when it has not moved, the engine reports the number already confirmed (0 or 1,000) | chat, during the scale-up build: "yes to all three", accepting the behaviour as built in slice su-2 |
+| Error messages show Salesforce's error code, never its wording | chat, during the scale-up build: "yes, approve codes-only", after an independent check showed a person's name could reach a public log |
 | Sample data pattern at 1,800: every 20th account outside its territory, every 100th from number 50 with an unknown country | chat, 2026-11-15: "yes to all four" |
 | The 300 accounts in the org are replaced by deleting them through the admin login just before the first load, with the owner's yes at that moment | chat, 2026-11-15: "yes to all four" |
 | The BDR dashboard has three tiles, and its account list covers Tier A and B, not Tier A alone | chat, 2026-11-15: "yes to all four"; this changes the earlier "my Tier A accounts" |
