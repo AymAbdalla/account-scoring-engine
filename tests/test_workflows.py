@@ -267,9 +267,16 @@ def test_score_workflow_exists():
     assert (WORKFLOW_FOLDER / "score-accounts.yml").is_file()
 
 
-def test_score_workflow_starts_only_from_the_run_button_with_a_yes_or_no_box():
+def test_score_workflow_starts_on_weekdays_at_seven_eastern():
+    # Spec: weekdays at 7:00 AM Eastern. In cron, "0 7 * * 1-5" is minute 0,
+    # hour 7, any day of the month, any month, Monday to Friday. The time zone
+    # makes it 7:00 in New York all year, through daylight saving changes.
+    assert triggers_of(score_workflow())["schedule"] == [{"cron": "0 7 * * 1-5", "timezone": "America/New_York"}]
+
+
+def test_score_workflow_starts_only_from_the_schedule_or_the_run_button_with_a_yes_or_no_box():
     triggers = triggers_of(score_workflow())
-    assert list(triggers) == ["workflow_dispatch"]
+    assert sorted(triggers) == ["schedule", "workflow_dispatch"]
     box = triggers["workflow_dispatch"]["inputs"]
     assert list(box) == ["force_failure"]
     assert box["force_failure"]["type"] == "boolean"
