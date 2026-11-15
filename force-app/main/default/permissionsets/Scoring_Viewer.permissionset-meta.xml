@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
-    <description>What a dashboard viewer needs: read the ten scoring fields on accounts. It cannot create, edit or delete anything.</description>
+    <applicationVisibilities>
+        <application>Account_Scoring</application>
+        <visible>true</visible>
+    </applicationVisibilities>
+    <description>What a dashboard viewer needs: read the ten scoring fields on accounts, and open the Account Scoring app. It cannot create, edit or delete anything.</description>
     <fieldPermissions>
         <editable>false</editable>
         <field>Account.BDR__c</field>
