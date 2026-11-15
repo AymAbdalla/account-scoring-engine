@@ -436,3 +436,20 @@ def test_outside_territory_number_counts_accounts_the_engine_flagged():
     assert tile is not None, "the Outside territory tile is missing"
     assert _text(tile, "componentType") == "Metric"
     assert ("Account.Territory_Status__c", "equals", "Outside territory") in _filters(reports()[_text(tile, "report")])
+
+
+def test_every_number_and_chart_tile_draws_a_grouped_report():
+    # Salesforce accepts a deploy where a number or chart tile points at a
+    # plain list report, then shows "This report cannot be used as the source
+    # for this component" on screen. Only a table tile may draw a list.
+    kept = reports()
+    found = dashboards()
+    assert found, "there are no dashboard files"
+    for name, dashboard in found.items():
+        for tile in tiles(dashboard):
+            if _text(tile, "componentType") == "FlexTable":
+                continue
+            report = kept[_text(tile, "report")]
+            assert _text(report, "format") == "Summary" and _groupings(report), (
+                "{}: the tile {!r} draws a report with no groups".format(name, _text(tile, "header"))
+            )
