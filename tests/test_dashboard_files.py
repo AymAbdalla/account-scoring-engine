@@ -267,3 +267,58 @@ def test_my_outside_territory_table_shows_the_engines_note():
     report = reports()[_text(tile, "report")]
     assert ("Account.Territory_Status__c", "equals", "Outside territory") in _filters(report)
     assert "Account.Territory_Note__c" in _report_columns(report)
+
+
+# --- Team Account Scoring: the manager dashboard (SPEC.md, Dashboards) ---
+
+TEAM = "Account_Scoring/Team_Account_Scoring"
+
+
+def _groupings(report):
+    return [_text(group, "field") for group in report.findall(NS + "groupingsDown")]
+
+
+def test_team_dashboard_counts_every_scored_account_whoever_owns_it():
+    found = dashboards()
+    assert TEAM in found, "the Team Account Scoring dashboard file is missing"
+    drawn = reports_drawn_by(found[TEAM])
+    assert drawn, "the Team Account Scoring dashboard has no tiles"
+    kept = reports()
+    for name in drawn:
+        assert _text(kept[name], "scope") == "organization", "{} leaves out accounts by owner".format(name)
+
+
+def test_team_dashboard_shows_the_same_numbers_to_every_viewer():
+    # Only My Accounts loads as the viewer. The team dashboard must not, or a
+    # BDR opening it would see a team of one, and it would use up one of the
+    # few viewer dashboards an org is allowed.
+    found = dashboards()
+    assert TEAM in found, "the Team Account Scoring dashboard file is missing"
+    assert _text(found[TEAM], "dashboardType") == "SpecifiedUser"
+
+
+def test_team_dashboard_opens_with_scored_count_tier_segment_and_region():
+    found = dashboards()
+    assert TEAM in found, "the Team Account Scoring dashboard file is missing"
+    headers = [_text(tile, "header") for tile in tiles(found[TEAM])]
+    for wanted in ("Accounts scored", "Accounts by tier", "By segment, split by tier", "By region, split by tier"):
+        assert wanted in headers, "the tile {!r} is missing".format(wanted)
+
+
+def test_segment_and_region_tiles_are_split_by_tier():
+    dashboard = dashboards().get(TEAM, ET.Element("none"))
+    for header, first in (("By segment, split by tier", "Account.Segment__c"), ("By region, split by tier", "Account.Region__c")):
+        tile = _tile(dashboard, header)
+        assert tile is not None, "the tile {!r} is missing".format(header)
+        wanted = [first, "Account.Tier__c"]
+        assert [g.text for g in tile.findall(NS + "groupingColumn")] == wanted
+        assert _groupings(reports()[_text(tile, "report")]) == wanted
+
+
+def test_accounts_scored_number_and_tier_chart_share_one_report():
+    dashboard = dashboards().get(TEAM, ET.Element("none"))
+    number, chart = _tile(dashboard, "Accounts scored"), _tile(dashboard, "Accounts by tier")
+    assert number is not None and chart is not None, "the scored count or the tier chart is missing"
+    assert _text(number, "componentType") == "Metric"
+    assert _text(number, "report") == _text(chart, "report")
+    assert _groupings(reports()[_text(chart, "report")]) == ["Account.Tier__c"]
