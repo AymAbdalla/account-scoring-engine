@@ -24,7 +24,11 @@ from salesforce.records import is_utc_time
 API_VERSION = "v68.0"
 TIMEOUT_SECONDS = 30  # give up on a request that gets no answer in this time
 MAX_RECORDS_PER_BATCH = 200  # Salesforce's limit for one batch of records
-MAX_BATCHES_PER_REQUEST = 5  # a cautious cap for this project (1,000 records); six batches in one request worked in a test
+# Salesforce's REST guide says five batches is the most one request may hold.
+# A test in this project's org on 2026-11-14 accepted six, but the engine
+# stays at the documented five.
+MAX_BATCHES_PER_REQUEST = 5
+MAX_RECORDS_PER_REQUEST = MAX_RECORDS_PER_BATCH * MAX_BATCHES_PER_REQUEST  # 1,000: the most one all-or-nothing request holds
 ROLLED_BACK = "ALL_OR_NONE_OPERATION_ROLLED_BACK"  # on a record: another record was bad
 HALTED = "PROCESSING_HALTED"  # on a batch: another batch was bad
 SETTING_NAMES = ["SF_INSTANCE_URL", "SF_CLIENT_ID", "SF_CLIENT_SECRET"]
@@ -258,7 +262,10 @@ def find_existing_ids(session, http=requests):
 
 
 def write_records(session, records, http=requests):
-    """Create or update the accounts in Salesforce, all or nothing.
+    """Create or update the accounts in Salesforce, in ONE all-or-nothing request.
+
+    One request holds at most 1,000 records. A bigger run is cut into several
+    requests by write_back.py, which calls this once for each.
 
     Salesforce takes at most 200 records in one batch, so the records are split
     into batches. All the batches travel in ONE request with "all or none"
@@ -274,7 +281,7 @@ def write_records(session, records, http=requests):
     if len(batches) > MAX_BATCHES_PER_REQUEST:
         raise SalesforceError(
             "{} records is more than one all-or-nothing request can hold ({})".format(
-                len(records), MAX_RECORDS_PER_BATCH * MAX_BATCHES_PER_REQUEST
+                len(records), MAX_RECORDS_PER_REQUEST
             )
         )
     upsert_address = "/services/data/{}/composite/sobjects/Account/Sample_Id__c".format(API_VERSION)
