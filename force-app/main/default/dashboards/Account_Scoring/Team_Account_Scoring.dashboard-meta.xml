@@ -136,7 +136,7 @@
             <rowSpan>9</rowSpan>
         </dashboardGridComponents>
         <dashboardGridComponents>
-            <colSpan>5</colSpan>
+            <colSpan>4</colSpan>
             <columnIndex>0</columnIndex>
             <dashboardComponent>
                 <autoselectColumnsFromReport>false</autoselectColumnsFromReport>
@@ -156,7 +156,7 @@
                 <groupingColumn>Account.Tier__c</groupingColumn>
                 <header>Tier A and B accounts by BDR</header>
                 <legendPosition>Bottom</legendPosition>
-                <maxValuesDisplayed>60</maxValuesDisplayed>
+                <maxValuesDisplayed>120</maxValuesDisplayed>
                 <report>Account_Scoring/Tier_A_And_B_Accounts_By_BDR</report>
                 <showPercentage>false</showPercentage>
                 <showValues>true</showValues>
@@ -167,8 +167,8 @@
             <rowSpan>30</rowSpan>
         </dashboardGridComponents>
         <dashboardGridComponents>
-            <colSpan>7</colSpan>
-            <columnIndex>5</columnIndex>
+            <colSpan>8</colSpan>
+            <columnIndex>4</columnIndex>
             <dashboardComponent>
                 <autoselectColumnsFromReport>false</autoselectColumnsFromReport>
                 <componentType>FlexTable</componentType>
