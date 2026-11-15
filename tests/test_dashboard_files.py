@@ -376,3 +376,63 @@ def test_the_repository_changes_no_profile_and_no_standard_app():
     # Salesforce's own apps would change what other users see.
     assert not list(BASE.glob("profiles/*")), "a profile file is in the repository"
     assert not list(BASE.glob("applications/standard__*")), "a file for a standard Salesforce app is in the repository"
+
+
+# --- Team Account Scoring: BDR, account list and territory (plan, db-4) ---
+
+
+def test_team_dashboard_has_its_seven_tiles():
+    found = dashboards()
+    assert TEAM in found, "the Team Account Scoring dashboard file is missing"
+    assert sorted(_text(tile, "header") for tile in tiles(found[TEAM])) == sorted(
+        [
+            "Accounts scored",
+            "Outside territory",
+            "Accounts by tier",
+            "By segment, split by tier",
+            "By region, split by tier",
+            "Tier A and B accounts by BDR",
+            "Tier A accounts",
+        ]
+    )
+
+
+def test_by_bdr_tile_shows_every_bdrs_tier_a_and_b_accounts_most_first():
+    # Open item 7: every BDR holds 30 accounts, so a plain count per BDR says
+    # nothing. The tile counts Tier A and B accounts, one row per BDR.
+    tile = _tile(dashboards().get(TEAM, ET.Element("none")), "Tier A and B accounts by BDR")
+    assert tile is not None, "the by-BDR tile is missing"
+    wanted = ["Account.BDR__c", "Account.Tier__c"]
+    assert [g.text for g in tile.findall(NS + "groupingColumn")] == wanted
+    assert _text(tile, "sortBy") == "RowValueDescending"
+    assert int(_text(tile, "maxValuesDisplayed")) >= 60, "the tile would cut off some of the 60 BDRs"
+
+    report = reports()[_text(tile, "report")]
+    assert _groupings(report) == wanted
+    assert ("Account.Tier__c", "equals", "A,B") in _filters(report)
+
+
+def test_tier_a_table_shows_who_holds_each_account_and_when_it_was_last_scored():
+    wanted = [
+        ACCOUNT_NAME,
+        "Account.BDR__c",
+        "Account.Segment__c",
+        "Account.Region__c",
+        "Account.Score__c",
+        "Account.Last_Scored__c",
+    ]
+    tile = _tile(dashboards().get(TEAM, ET.Element("none")), "Tier A accounts")
+    assert tile is not None, "the Tier A accounts tile is missing"
+    assert _table_columns(tile) == wanted
+
+    report = reports()[_text(tile, "report")]
+    assert _report_columns(report) == wanted
+    assert ("Account.Tier__c", "equals", "A") in _filters(report)
+    assert (_text(report, "sortColumn"), _text(report, "sortOrder")) == ("Account.Score__c", "Desc")
+
+
+def test_outside_territory_number_counts_accounts_the_engine_flagged():
+    tile = _tile(dashboards().get(TEAM, ET.Element("none")), "Outside territory")
+    assert tile is not None, "the Outside territory tile is missing"
+    assert _text(tile, "componentType") == "Metric"
+    assert ("Account.Territory_Status__c", "equals", "Outside territory") in _filters(reports()[_text(tile, "report")])
