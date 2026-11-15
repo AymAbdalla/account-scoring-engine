@@ -40,6 +40,12 @@ REASONS_SHOWN = 3
 # still repeat one of them, so `clean` hides these values in every message.
 SETTINGS_TO_HIDE = set()
 
+# The display names of the Salesforce users the engine has read (see
+# find_active_users). A plain name such as "Dana Lee" is not shaped like an
+# email address or an id, so no pattern below would catch it. `clean` hides
+# these exact names instead, in every message from then on.
+USER_NAMES_TO_HIDE = set()
+
 # What `clean` removes from Salesforce's text, in this order.
 USER_NAME = re.compile(r"\S+@\S+")                                   # looks like an email address
 WEB_ADDRESS = re.compile(r"https?://\S+")
@@ -67,9 +73,9 @@ class NoAnswer(SalesforceError):
 def clean(text, holding=None):
     """Make a piece of Salesforce's text safe to print in a public log.
 
-    Removes the values the engine is holding (the settings or the session),
-    then anything shaped like a user name, a web address, a token or a
-    Salesforce id. Puts the text on one line, so it cannot start a line with
+    Removes the values the engine is holding (the settings or the session)
+    and the names of the Salesforce users it has read, then anything shaped
+    like a login name, a web address, a token or a Salesforce id. Puts the text on one line, so it cannot start a line with
     "::" (GitHub reads that as a command), and cuts it to a fixed length.
     """
     text = str(text)
@@ -78,6 +84,9 @@ def clean(text, holding=None):
     held += [value.split("://", 1)[1] for value in held if "://" in value]  # the address without https
     for value in sorted(held, key=len, reverse=True):
         text = text.replace(value, "<hidden>")
+    # Longest name first, so "Dana Lee Smith" is not left as "<user> Smith".
+    for name in sorted(USER_NAMES_TO_HIDE, key=len, reverse=True):
+        text = text.replace(name, "<user>")
     text = USER_NAME.sub("<user>", text)
     text = WEB_ADDRESS.sub("<address>", text)
     text = HOST_NAME.sub("<address>", text)
@@ -217,17 +226,18 @@ def call_salesforce(send, doing_what):
 
 
 def read_every_page(session, query, what, http=requests):
-    """Run a query and return every record of the answer.
+    """Run a query and hand over every record of the answer, one at a time.
 
     Salesforce answers long lists a page at a time, so this keeps asking for
-    the next page until there are none left. `what` names the list in plain
+    the next page until there are none left. The records of one page are
+    handed over before the next page is asked for, so the caller has seen
+    them by the time a later page can fail. `what` names the list in plain
     words for the error messages, for example "the existing accounts".
     """
     headers = {"Authorization": "Bearer " + session["access_token"]}
     url = "{}/services/data/{}/query".format(session["instance_url"], API_VERSION)
     params = {"q": query}
     wrong_shape = SalesforceError("Salesforce's list of {} was not in the expected shape".format(what))
-    found = []
     while True:
         response = call_salesforce(
             lambda: http.get(url, headers=headers, params=params, timeout=TIMEOUT_SECONDS),
@@ -243,11 +253,11 @@ def read_every_page(session, query, what, http=requests):
         records = answer.get("records")
         if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
             raise wrong_shape
-        found.extend(records)
+        yield from records
         # More pages to come? Salesforce gives the address of the next one.
         next_page = answer.get("nextRecordsUrl")
         if next_page is None:
-            return found
+            return
         if not isinstance(next_page, str) or not next_page.startswith("/"):
             raise wrong_shape
         url = session["instance_url"] + next_page
@@ -276,7 +286,9 @@ def find_active_users(session, http=requests):
     to more than one user, so each name holds a list of ids.
 
     The ids go into the records the engine writes, so only text shaped like a
-    Salesforce id is let through. Neither the names nor the ids are printed.
+    Salesforce id is let through. Neither the names nor the ids are printed:
+    each name is handed to `clean` the moment it is read, so that a later
+    reply from Salesforce that repeats it cannot put it in a message.
     """
     what = "the active users"
     users = {}
@@ -284,6 +296,8 @@ def find_active_users(session, http=requests):
         user_id, name = record.get("Id"), record.get("Name")
         if not isinstance(name, str) or not isinstance(user_id, str) or not SALESFORCE_ID.fullmatch(user_id):
             raise SalesforceError("Salesforce's list of {} was not in the expected shape".format(what))
+        if name.strip():
+            USER_NAMES_TO_HIDE.add(name)
         users.setdefault(name, []).append(user_id)
     return users
 
@@ -421,4 +435,3 @@ def count_scored_at(session, scored_at, http=requests):
     if type(total) is not int or total < 0:
         raise SalesforceError("Salesforce would not count the accounts: its answer held no usable total")
     return total
-
