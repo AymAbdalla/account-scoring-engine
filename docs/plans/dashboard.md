@@ -369,4 +369,3 @@ One more item for the list shown to you in db-5: Dashboards gains a sentence say
 Approving this section authorizes: writing the files named in db-6; dry-run and real deploys of the Home page, the app and the updated `Scoring_Viewer`, and nothing else; committing the slice and its build record on the branch; and option A unless you choose another.
 
 It does not authorize: editing any profile or standard app, changing a setting in Setup, pushing, or the SPEC.md edit before you have seen its text.
-
