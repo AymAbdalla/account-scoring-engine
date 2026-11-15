@@ -4,7 +4,7 @@
 
 ▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md)
 
-**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested. The scheduled run, the dashboard and the demo video are still to come before v0.1.0 is released.
+**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested. The Run button on GitHub is proven with real runs, including a forced failure. The weekday schedule is in place but has not yet been seen running. The dashboard and the demo video are still to come before v0.1.0 is released.
 
 _Dashboard screenshot goes here at release._
 
@@ -12,7 +12,7 @@ _Dashboard screenshot goes here at release._
 
 ![Architecture: GitHub Actions starts the Python scoring engine on a schedule or on demand. It reads sample accounts and signals plus weights.yaml, sorts each account into a segment, scores it, picks the top 3 reasons and upserts the results to Salesforce, where 60 BDRs see ranked lists.](docs/architecture.svg)
 
-The design is for GitHub to start the engine on a schedule or on demand, so that nothing in a run needs a person, a laptop or a chat window. Today one command starts it; the scheduled run is the next piece to build.
+GitHub starts the engine, so nothing in a run needs a person, a laptop or a chat window. A Run button starts it on demand, and a schedule is set to start it on weekdays at or shortly after 7:00 AM Eastern.
 
 ## How it works
 
@@ -20,7 +20,7 @@ The design is for GitHub to start the engine on a schedule or on demand, so that
 - **Accounts in the wrong book get flagged.** The engine compares each account's territory with the territory of the BDR who holds it. A mismatch is flagged with the evidence, such as "205 employees is Mid-Market; BDR covers SMB". It only flags. It never moves an account.
 - **Rules live in one file.** `weights.yaml` holds the segment bands, the regions and their countries, five rules worth 100 points and the tier cutoffs. Changing a weight changes no code, and every score records which rules version made it.
 - **Every score explains itself.** Each account gets a score, a tier (A to D) and up to three rules that earned it the most points, in plain English. An account that matched no rule says "No rules matched".
-- **Built to run unattended.** One command scores all accounts and writes the results into Salesforce. It only updates the fields it owns, it's safe to run twice, and it fails loudly if anything goes wrong. A scheduled GitHub Action with a Run button comes next.
+- **Built to run unattended.** One command scores all accounts and writes the results into Salesforce. It only updates the fields it owns, it's safe to run twice, and it fails loudly if anything goes wrong. A GitHub workflow runs that command on a schedule and on demand, and a failed run shows red.
 
 ## Quickstart
 
@@ -36,6 +36,30 @@ To write the scores into a Salesforce Developer org as well:
 7. Copy `.env.example` to `.env` and fill in the org address and the app's key and secret. Git ignores `.env`.
 8. Check the connection: `python check_salesforce.py` (reads only)
 9. Write and read back: `python write_back.py` (creates the 300 accounts the first time, then updates the same 300 on every later run)
+
+## Running it on GitHub
+
+Two workflow files in `.github/workflows/` tell GitHub what to run:
+
+| Workflow | Starts | What it does |
+|---|---|---|
+| `tests` | on every pull request and every push to `main` | installs the libraries from the lock file and runs the tests. It is given no credentials |
+| `score-accounts` | on weekdays at or shortly after 7:00 AM Eastern, and from the Run button | checks the connection to Salesforce (reads only), then runs `python write_back.py` |
+
+To set it up in your own copy:
+
+1. Store the three settings as GitHub Actions secrets. Run each command and paste the value when asked, so the value never appears in the command itself:
+   `gh secret set SF_INSTANCE_URL`, `gh secret set SF_CLIENT_ID`, `gh secret set SF_CLIENT_SECRET`
+2. Start a run: on GitHub, open **Actions**, choose **score-accounts** and press **Run workflow**. Or from a terminal: `gh workflow run score-accounts.yml`
+3. To see a failure on purpose, tick **Force a failure**. The run feeds the engine a file with a duplicate id. The engine's own check refuses it, nothing is sent to Salesforce, and the run ends red.
+
+Things worth knowing:
+
+- **A red run means look.** Nothing retries by itself. A failure before the write, or a write Salesforce refuses, changes nothing. If a write is sent and Salesforce never answers, the engine says so; running it again is safe.
+- **The schedule can start a few minutes late**, because GitHub queues scheduled runs. The Run button is the way to catch up.
+- **Only two steps get the credentials**: the connection check and the write. The step that installs libraries does not.
+- **Run logs are written to be safe to read in public.** The engine never prints the org's address, and messages built from Salesforce replies are cleaned of addresses, ids and user names.
+- **To switch the schedule off:** `gh workflow disable score-accounts.yml`. To switch it back on: `gh workflow enable score-accounts.yml`.
 
 All data in this repo is generated sample data. Names come from a fake-data library, so any match with a real company or person is a coincidence.
 

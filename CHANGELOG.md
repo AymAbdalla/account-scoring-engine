@@ -10,7 +10,7 @@ Only list an item here once it's built and checked.
 
 ## [Unreleased]
 
-Work towards v0.1.0. Everything listed here is built, tested and checked. Three things are still to come before v0.1.0 is released: the scheduled GitHub Action with a Run button, the Salesforce dashboard and the demo video.
+Work towards v0.1.0. Everything listed here is built, tested and checked. Still to come before v0.1.0 is released: the first scheduled run seen on GitHub, the Salesforce dashboard and the demo video.
 
 ### Added
 
@@ -35,17 +35,34 @@ Salesforce
 - Write-back (`write_back.py`): checks every record before sending anything, then writes all accounts in one all-or-nothing request matched on a fixed id, so a rerun updates the same accounts and creates no duplicates. Name and BDR are set on the first load only. Score, Tier, Top Reasons, Last Scored, Segment, Region, Territory Status and Territory Note are written on every run.
 - Read back: the engine counts the accounts carrying the run's time before writing and after it. A run succeeds only when Salesforce confirms the write and the count matches. Every failure ends with an error and prints the scored, written and failed counts.
 
+GitHub Actions
+- Run button (`score-accounts` workflow): checks the connection to Salesforce, then runs the write-back. The three Salesforce secrets are handed only to those two steps.
+- Forced failure: a "Force a failure" box on the Run button feeds the engine a file with a duplicate id, through a new `--accounts` option on `write_back.py`. The engine's own check refuses to write and the run ends red.
+- Tests on every pull request and push to `main` (`tests` workflow), with no credentials.
+- Both workflows name their actions by exact commit id, give the job read-only access to the code, and install libraries from a lock file with checksums enforced.
+
 Tests
-- 185 automated tests. The Salesforce tests run against a stand-in that answers the way the real org does, and a safety net makes any test fail at once if it tries to reach the real network.
+- 336 automated tests. The Salesforce tests run against a stand-in that answers the way the real org does, and a safety net makes any test fail at once if it tries to reach the real network.
+- Tests that read the workflow files and fail if a safety rule is loosened: an action named by a tag, wider permissions, a risky trigger, an install without checksums, or a credential anywhere except the two agreed steps, however it is written.
 
 ### Changed
 
 - Tier A needs at least two of the three timing signals. The earlier wording said one; full fit plus one timing signal is 70 points, which is Tier B.
 - Segment and Region are written to Salesforce on every run. They were first-load only before the engine worked them out itself.
 - The roadmap in the README is grouped into v0.2, v0.3 and v0.4.
+- Python 3.13, named in `.python-version`. Python 3.9 is past its end of support.
+- Libraries are installed from `requirements.lock`, which lists every library with a checksum. `requests`, `pytest` and `python-dotenv` are raised to releases that carry published security fixes.
+- Messages built from Salesforce replies are cleaned of addresses, Salesforce ids, user names and tokens before they are printed, and whole replies are no longer printed. The connection check no longer prints the org's address. An error nobody planned for shows only its kind, file and line. Run logs on GitHub are public once the repository is.
 
 ### Proven in a Salesforce Developer org
 
 - One bad record in a batch of 200 undid a second batch sent in the same request, so a write of 300 accounts is all or nothing.
 - Two runs in a row left exactly 300 accounts with no duplicates. A BDR changed by hand survived a rerun.
 - A duplicate id, a company too small for any segment and a wrong secret each ended the run with an error and left the stored scores unchanged.
+
+### Proven on GitHub
+
+- A run started with the Run button logged in to the Developer org from GitHub and wrote all 300 accounts. Only the Last Scored time changed; the other seven engine fields were identical before and after.
+- A run with "Force a failure" ticked ended red with "nothing was sent", and the 300 accounts in the org were byte-for-byte the same before and after.
+- A second normal run left exactly 300 accounts, with no duplicates.
+- The three run logs hold no org address, Salesforce id, user name or token.
