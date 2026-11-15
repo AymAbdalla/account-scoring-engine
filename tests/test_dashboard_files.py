@@ -207,3 +207,63 @@ def test_tiles_fit_the_grid_without_overlapping():
         for i, (l1, t1, r1, b1) in enumerate(boxes):
             for l2, t2, r2, b2 in boxes[i + 1 :]:
                 assert not (l1 < r2 and l2 < r1 and t1 < b2 and t2 < b1), "{} has two tiles that overlap".format(name)
+
+
+# --- My Accounts: the three tiles the spec settles (SPEC.md, Dashboards) ---
+
+
+def _tile(dashboard, header):
+    for tile in tiles(dashboard):
+        if _text(tile, "header") == header:
+            return tile
+    return None
+
+
+def _report_columns(report):
+    return [_text(column, "field") for column in report.findall(NS + "columns")]
+
+
+def _table_columns(tile):
+    return [_text(column, "reportColumn") for column in tile.iter(NS + "flexTableColumn")]
+
+
+def _filters(report):
+    return {
+        (_text(item, "column"), _text(item, "operator"), _text(item, "value"))
+        for item in report.iter(NS + "criteriaItems")
+    }
+
+
+def test_my_accounts_has_its_three_tiles():
+    found = dashboards()
+    assert MY_ACCOUNTS in found, "the My Accounts dashboard file is missing"
+    assert [_text(tile, "header") for tile in tiles(found[MY_ACCOUNTS])] == [
+        "My accounts by tier",
+        "My Tier A and B accounts",
+        "My accounts outside my territory",
+    ]
+
+
+def test_my_tier_a_and_b_table_lists_name_tier_score_and_last_scored_highest_score_first():
+    wanted = [ACCOUNT_NAME, "Account.Tier__c", "Account.Score__c", "Account.Last_Scored__c"]
+    tile = _tile(dashboards().get(MY_ACCOUNTS, ET.Element("none")), "My Tier A and B accounts")
+    assert tile is not None, "the My Tier A and B accounts tile is missing"
+    assert _text(tile, "componentType") == "FlexTable"
+    assert _table_columns(tile) == wanted
+
+    report = reports()[_text(tile, "report")]
+    assert _report_columns(report) == wanted
+    assert ("Account.Tier__c", "equals", "A,B") in _filters(report)
+    assert (_text(report, "sortColumn"), _text(report, "sortOrder")) == ("Account.Score__c", "Desc")
+
+
+def test_my_outside_territory_table_shows_the_engines_note():
+    tile = _tile(dashboards().get(MY_ACCOUNTS, ET.Element("none")), "My accounts outside my territory")
+    assert tile is not None, "the My accounts outside my territory tile is missing"
+    assert _text(tile, "componentType") == "FlexTable"
+    assert _table_columns(tile)[0] == ACCOUNT_NAME
+    assert "Account.Territory_Note__c" in _table_columns(tile)
+
+    report = reports()[_text(tile, "report")]
+    assert ("Account.Territory_Status__c", "equals", "Outside territory") in _filters(report)
+    assert "Account.Territory_Note__c" in _report_columns(report)
