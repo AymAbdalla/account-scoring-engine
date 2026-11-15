@@ -289,6 +289,8 @@ The plan above is left as it was approved.
 - **Order of work:** db-2 was built before the owner's look at db-1, so one browser session covered both. Its files did not depend on the licence answer.
 - **Logging in as a BDR user:** the Login link was missing, so the owner switched on "Administrators Can Log in as Any User" in Setup. That is an org setting, changed by the owner.
 - **A retrieve cannot write outside a project**, so retrieved copies go to a throwaway project in the scratch folder.
+- **An exception to "seen failing first", approved by the owner on 2026-11-15 ("yes to both").** The Slices section says tests are committed and seen failing before the files that pass them. An independent check of db-6 found one test that already passed when it was written, because it guards something that was true before the slice: `test_the_repository_changes_no_profile_and_no_standard_app` in `tests/test_dashboard_files.py`. The owner approved keeping it as a guard without a failing run of its own. The reason: the builder broke a scratch copy two ways, adding a profile file and then a file for a standard app, and the test failed both times. The rule still applies to every other test in this plan.
+- **Three committed screenshots, not two, approved by the owner on 2026-11-15 ("yes to both, keep all three").** db-5 named `docs/dashboard-team.png` and `docs/dashboard-my-accounts.png`. The owner's screenshots show the team dashboard in two parts, so a third crop, `docs/dashboard-team-bdr.png`, carries its third row: the by-BDR bars and the Tier A table. All three passed the checks under "The screenshots".
 
 ## Added slice db-6: My Accounts as the landing page
 
