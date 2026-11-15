@@ -216,49 +216,89 @@ def call_salesforce(send, doing_what):
         raise NoAnswer("Salesforce gave no answer while {} ({})".format(doing_what, type(error).__name__))
 
 
-def find_existing_ids(session, http=requests):
-    """Return the Sample Ids of the accounts Salesforce already has.
+def read_every_page(session, query, what, http=requests):
+    """Run a query and return every record of the answer.
 
     Salesforce answers long lists a page at a time, so this keeps asking for
-    the next page until there are none left.
+    the next page until there are none left. `what` names the list in plain
+    words for the error messages, for example "the existing accounts".
     """
     headers = {"Authorization": "Bearer " + session["access_token"]}
     url = "{}/services/data/{}/query".format(session["instance_url"], API_VERSION)
-    params = {"q": "SELECT Sample_Id__c FROM Account WHERE Sample_Id__c != null"}
-    ids = set()
+    params = {"q": query}
+    wrong_shape = SalesforceError("Salesforce's list of {} was not in the expected shape".format(what))
+    found = []
     while True:
         response = call_salesforce(
             lambda: http.get(url, headers=headers, params=params, timeout=TIMEOUT_SECONDS),
-            "reading the existing accounts",
+            "reading {}".format(what),
         )
         answer = read_answer(response)
         if response.status_code != 200 or not isinstance(answer, dict):
             raise SalesforceError(
-                "Salesforce would not list the existing accounts (HTTP {}): {}".format(
-                    response.status_code, reason_given(answer, session)
+                "Salesforce would not list {} (HTTP {}): {}".format(
+                    what, response.status_code, reason_given(answer, session)
                 )
             )
-        wrong_shape = SalesforceError("Salesforce's list of existing accounts was not in the expected shape")
         records = answer.get("records")
-        if not isinstance(records, list):
+        if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
             raise wrong_shape
-        for record in records:
-            if not isinstance(record, dict):
-                raise wrong_shape
-            sample_id = record.get("Sample_Id__c")
-            if sample_id is None:
-                continue  # an account with no Sample Id is not one of ours
-            if not isinstance(sample_id, str):
-                raise wrong_shape
-            ids.add(sample_id)
+        found.extend(records)
         # More pages to come? Salesforce gives the address of the next one.
         next_page = answer.get("nextRecordsUrl")
         if next_page is None:
-            return ids
+            return found
         if not isinstance(next_page, str) or not next_page.startswith("/"):
             raise wrong_shape
         url = session["instance_url"] + next_page
         params = None
+
+
+def find_existing_ids(session, http=requests):
+    """Return the Sample Ids of the accounts Salesforce already has."""
+    what = "the existing accounts"
+    ids = set()
+    for record in read_every_page(session, "SELECT Sample_Id__c FROM Account WHERE Sample_Id__c != null", what, http):
+        sample_id = record.get("Sample_Id__c")
+        if sample_id is None:
+            continue  # an account with no Sample Id is not one of ours
+        if not isinstance(sample_id, str):
+            raise SalesforceError("Salesforce's list of {} was not in the expected shape".format(what))
+        ids.add(sample_id)
+    return ids
+
+
+def find_active_users(session, http=requests):
+    """Return the active Salesforce users by name: {"Dana Lee": ["005..."]}.
+
+    The engine uses this once, when it first creates an account: a user with
+    the same name as the account's BDR becomes its owner. A name can belong
+    to more than one user, so each name holds a list of ids.
+
+    The ids go into the records the engine writes, so only text shaped like a
+    Salesforce id is let through. Neither the names nor the ids are printed.
+    """
+    what = "the active users"
+    users = {}
+    for record in read_every_page(session, "SELECT Id, Name FROM User WHERE IsActive = true", what, http):
+        user_id, name = record.get("Id"), record.get("Name")
+        if not isinstance(name, str) or not isinstance(user_id, str) or not SALESFORCE_ID.fullmatch(user_id):
+            raise SalesforceError("Salesforce's list of {} was not in the expected shape".format(what))
+        users.setdefault(name, []).append(user_id)
+    return users
+
+
+def find_owner_problems(fields):
+    """Check that the engine may set the Account Owner when it creates an account. Empty list means all good.
+
+    Only "createable" matters: the engine never changes the owner of an
+    account that already exists.
+    """
+    if "OwnerId" not in fields:
+        return ["OwnerId: the engine's user cannot see the Account Owner field"]
+    if not fields["OwnerId"].get("createable"):
+        return ["OwnerId: the engine's user cannot set the Account Owner when it creates an account"]
+    return []
 
 
 def write_records(session, records, http=requests):
@@ -382,10 +422,3 @@ def count_scored_at(session, scored_at, http=requests):
         raise SalesforceError("Salesforce would not count the accounts: its answer held no usable total")
     return total
 
-
-def find_active_users(session, http=requests):
-    return {}  # stub
-
-
-def find_owner_problems(fields):
-    return []  # stub

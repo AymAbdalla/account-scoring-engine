@@ -513,7 +513,7 @@ def test_run_stops_before_writing_when_accounts_already_carry_its_time():
 def test_run_counts_before_writing_and_after():
     org = FakeOrg()
     run(org, [make_account(1), make_account(2)], scored_at=FROZEN)
-    assert [kind for kind, _ in org.requests] == ["query", "count", "write", "count"]
+    assert [kind for kind, _ in org.requests] == ["query", "count", "users", "write", "count"]
 
 
 def test_count_before_writing_that_cannot_be_done_sends_no_write():
@@ -556,7 +556,7 @@ def test_write_reply_with_empty_pieces_fails_cleanly_and_still_reads_back(reply)
     with pytest.raises(WriteBackFailed) as caught:
         run(org, [make_account(1), make_account(2)])
     assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, 0, 2)
-    assert [kind for kind, _ in org.requests] == ["query", "count", "write", "count"]
+    assert [kind for kind, _ in org.requests] == ["query", "count", "users", "write", "count"]
 
 
 def test_overlapping_run_is_not_vouched_for_when_its_own_write_gets_no_answer():
@@ -582,7 +582,7 @@ def test_overlapping_run_is_not_vouched_for_when_its_own_write_gets_no_answer():
     assert "no answer" in str(caught.value).lower()
     assert stored_scores(org) == [70]  # this run's score of 50 was never saved, and the run did not claim it was
     # Both counts were made, and the one before the write was zero.
-    assert [kind for kind, _ in org.requests] == ["query", "count", "write", "count"]
+    assert [kind for kind, _ in org.requests] == ["query", "count", "users", "write", "count"]
 
 
 def test_program_ends_with_an_error_and_unknown_counts_when_the_write_gets_no_answer(tmp_path, capsys):
@@ -784,8 +784,9 @@ def test_1800_accounts_go_as_two_requests_with_a_count_after_each():
     result, printed = run(org, make_1800(), scored_at=FROZEN)
     assert result == {"scored": 1800, "written": 1800, "failed": 0}
     assert write_requests(org) == [[200, 200, 200, 200, 200], [200, 200, 200, 200]]
-    # A count before anything is sent, then one after each request.
-    assert [kind for kind, _ in org.requests] == ["query", "count", "write", "count", "write", "count"]
+    # A count before anything is sent, then one after each request. The read
+    # of the users is there because every account in this run is new.
+    assert [kind for kind, _ in org.requests] == ["query", "count", "users", "write", "count", "write", "count"]
     assert len(org.accounts) == 1800
     assert printed[-1] == "Scored 1800, written 1800, failed 0."
 

@@ -7,6 +7,9 @@ The steps, in order:
      field; existing ones get only the fields the engine owns.
   4. Count the accounts that already carry this run's time. It must be zero,
      so that the count afterwards can only be this run's work.
+     When any account is new, also read the names of the active users: a
+     new account whose BDR has the same name as a user is created with that
+     user as its owner. An existing account's owner is never touched.
   5. Write the records. One all-or-nothing request holds at most 1,000, so
      the 1,800 sample accounts go as two requests, in ranking order: 1,000,
      then 800. Each request is all or nothing by itself.
@@ -42,6 +45,7 @@ from salesforce.client import (
     NoAnswer,
     SalesforceError,
     count_scored_at,
+    find_active_users,
     find_existing_ids,
     log_in,
     read_settings,
@@ -137,9 +141,36 @@ def write_back(accounts, rules, roster, limits, session, http=requests, say=prin
             "from an earlier one. Nothing was sent. Run it again.".format(already_stamped, run_time),
             scored=scored,
         )
-    records = [build_record(row, exists=row["id"].lower() in existing) for row in rows]
-    already_there = sum(1 for row in rows if row["id"].lower() in existing)
-    say("Salesforce already has {} of these accounts; {} are new.".format(already_there, scored - already_there))
+    new_rows = [row for row in rows if row["id"].lower() not in existing]
+    say("Salesforce already has {} of these accounts; {} are new.".format(scored - len(new_rows), len(new_rows)))
+
+    # Who owns a new account? An active Salesforce user with the same name as
+    # its BDR. With no such user, the owner is left out and Salesforce gives
+    # the account to the engine's own user. Only new accounts get an owner,
+    # so the users are read only when something is new.
+    owners = {}
+    if new_rows:
+        try:
+            users = find_active_users(session, http)
+        except SalesforceError as error:
+            raise WriteBackFailed("{} Nothing was sent.".format(error), scored=scored)
+        new_bdrs = sorted({row["bdr"] for row in new_rows})
+        shared = [bdr for bdr in new_bdrs if len(users.get(bdr, [])) > 1]
+        if shared:
+            # Guessing an owner would be worse than stopping.
+            raise WriteBackFailed(
+                "More than one active Salesforce user is named {}, so the engine cannot tell who should own "
+                "that BDR's new accounts. Nothing was sent.".format(", ".join('"{}"'.format(bdr) for bdr in shared)),
+                scored=scored,
+            )
+        owners = {bdr: users[bdr][0] for bdr in new_bdrs if bdr in users}
+        owned = sum(1 for row in new_rows if row["bdr"] in owners)
+        say("{} new account(s) get a Salesforce user as owner; {} go to the engine's own user.".format(
+            owned, len(new_rows) - owned))
+    records = [
+        build_record(row, exists=row["id"].lower() in existing, owner_id=owners.get(row["bdr"]))
+        for row in rows
+    ]
 
     # 5. Write, one all-or-nothing request at a time, in ranking order.
     #    6. Read back after each one, whatever happened. Salesforce saying
