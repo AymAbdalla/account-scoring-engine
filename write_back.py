@@ -89,8 +89,12 @@ def load_accounts(path):
 
 def write_back(accounts, rules, roster, limits, session, http=requests, say=print, scored_at=None):
     """Score, check, write and read back. Returns the counts, or raises WriteBackFailed."""
-    # 1. Score.
-    rows = combine(accounts, score_all(accounts, rules, roster, scored_at))
+    # 1. Score. An account the engine cannot score is a problem with the data,
+    #    and the engine's own explanation of it is safe to show.
+    try:
+        rows = combine(accounts, score_all(accounts, rules, roster, scored_at))
+    except ValueError as error:
+        raise WriteBackFailed(str(error))
     scored = len(rows)
     say("Scored {} accounts (rules version {}).".format(scored, rules["version"]))
 
@@ -188,15 +192,19 @@ def main(accounts_path=ACCOUNTS_PATH, environ=None, http=requests):
         environ = os.environ
     try:
         accounts = load_accounts(accounts_path)
-        rules = load_rules()
+        try:
+            rules = load_rules()
+            roster = load_roster(rules)
+        except ValueError as error:
+            # A mistake in weights.yaml or the roster, explained in the engine's own words.
+            raise WriteBackFailed(str(error))
         session = log_in(read_settings(environ), http)
-        write_back(accounts, rules, load_roster(rules), load_field_limits(), session, http)
+        write_back(accounts, rules, roster, load_field_limits(), session, http)
     except WriteBackFailed as failure:
         print(failure.counts_line())
         sys.exit("WRITE-BACK FAILED: {}".format(failure))
-    except (SalesforceError, ValueError) as error:
-        # A failure before any account was written: a refused login, or an
-        # account the engine cannot score.
+    except SalesforceError as error:
+        # A failure before any account was scored: a missing setting or a refused login.
         print("Nothing was scored or written.")
         sys.exit("WRITE-BACK FAILED: {}".format(error))
     except Exception as error:

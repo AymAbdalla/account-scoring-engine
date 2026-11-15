@@ -31,6 +31,11 @@ SETTING_NAMES = ["SF_INSTANCE_URL", "SF_CLIENT_ID", "SF_CLIENT_SECRET"]
 MAX_MESSAGE_LENGTH = 300  # longest piece of Salesforce's own text that is repeated
 REASONS_SHOWN = 3
 
+# The settings the engine logged in with. After the login they are no longer
+# passed from function to function, but a later reply from Salesforce could
+# still repeat one of them, so `clean` hides these values in every message.
+SETTINGS_TO_HIDE = set()
+
 # What `clean` removes from Salesforce's text, in this order.
 USER_NAME = re.compile(r"\S+@\S+")                                   # looks like an email address
 WEB_ADDRESS = re.compile(r"https?://\S+")
@@ -65,6 +70,7 @@ def clean(text, holding=None):
     """
     text = str(text)
     held = [value for value in (holding or {}).values() if isinstance(value, str) and value]
+    held += sorted(SETTINGS_TO_HIDE)
     held += [value.split("://", 1)[1] for value in held if "://" in value]  # the address without https
     for value in sorted(held, key=len, reverse=True):
         text = text.replace(value, "<hidden>")
@@ -125,6 +131,7 @@ def read_answer(response):
 
 def log_in(settings, http=requests):
     """Ask Salesforce for a token. Returns the token and the org address to use."""
+    SETTINGS_TO_HIDE.update(value for value in settings.values() if isinstance(value, str) and value)
     url = settings["instance_url"] + "/services/oauth2/token"
     form = {
         "grant_type": "client_credentials",
