@@ -84,8 +84,44 @@ def find_workflow_problems(workflow):
     return problems
 
 
+MENTIONS_SECRETS = re.compile(r"\bsecrets\b", re.IGNORECASE)
+AGREED_SECRETS = {name: "${{ secrets." + name + " }}" for name in ["SF_CLIENT_ID", "SF_CLIENT_SECRET", "SF_INSTANCE_URL"]}
+
+
+def mentions_secrets(value):
+    """True if the word `secrets` appears anywhere inside, in any spelling.
+
+    GitHub accepts secrets.NAME, secrets['NAME'], toJSON(secrets) and more, and
+    ignores upper and lower case. Looking for the word itself catches them all.
+    """
+    return bool(MENTIONS_SECRETS.search(repr(value)))
+
+
 def find_credential_problems(workflow, salesforce_commands=()):
-    return []  # stub: lets the tests reach their assertions
+    """Every place a credential is handed out that was not agreed. Empty means none.
+
+    Agreed: a step that runs one of `salesforce_commands` is given exactly the
+    three Salesforce secrets, each under its own name and written one way.
+    Everything else in the workflow must not mention secrets at all.
+    """
+    problems = []
+    for step in steps_of(workflow):
+        env = step.get("env") or {}
+        everything_else = {key: value for key, value in step.items() if key != "env"}
+        if mentions_secrets(everything_else):
+            problems.append("a step mentions secrets outside its env")
+        with_secrets = {name: value for name, value in env.items() if mentions_secrets({name: value})}
+        if step.get("run", "").strip() in salesforce_commands:
+            if with_secrets != AGREED_SECRETS:
+                problems.append("a Salesforce step must be given exactly the three agreed secrets")
+        elif with_secrets:
+            problems.append("a step that does not talk to Salesforce is given a secret")
+    outside_the_steps = copy.deepcopy(workflow)
+    for job in outside_the_steps.get("jobs", {}).values():
+        job.pop("steps", None)
+    if mentions_secrets(outside_the_steps):
+        problems.append("secrets are mentioned outside the steps")
+    return problems
 
 
 # --- The real files ----------------------------------------------------------
