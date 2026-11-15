@@ -4,9 +4,11 @@
 
 ▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md)
 
-**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 accounts, including a forced failure; a GitHub run at 1,800 is still to come. The weekday schedule is in place but has not yet been seen running. The dashboards and the demo video are still to come before v0.1.0 is released.
+**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 accounts, including a forced failure; a GitHub run at 1,800 is still to come. The weekday schedule is in place but has not yet been seen running. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. The demo video is still to come before v0.1.0 is released.
 
-_Dashboard screenshot goes here at release._
+![The team dashboard: 1,800 accounts scored, 90 outside their BDR's territory, accounts by tier as columns, and stacked bars by segment and by region, each split by tier.](docs/dashboard-team.png)
+
+_The team dashboard, for a manager: every scored account by tier, segment and region. More under [Dashboards](#dashboards)._
 
 ## Architecture at a glance
 
@@ -21,6 +23,7 @@ GitHub starts the engine, so nothing in a run needs a person, a laptop or a chat
 - **Rules live in one file.** `weights.yaml` holds the segment bands, the regions and their countries, five rules worth 100 points and the tier cutoffs. Changing a weight changes no code, and every score records which rules version made it.
 - **Every score explains itself.** Each account gets a score, a tier (A to D) and up to three rules that earned it the most points, in plain English. An account that matched no rule says "No rules matched".
 - **Built to run unattended.** One command scores all accounts and writes the results into Salesforce. It only updates the fields it owns, it's safe to run twice, and it fails loudly if anything goes wrong. A GitHub workflow runs that command on a schedule and on demand, and a failed run shows red.
+- **Each BDR sees their own accounts first.** One shared dashboard, My Accounts, loads as whoever is looking and shows only the accounts that person owns. A second dashboard shows a manager the whole team.
 - **Each BDR owns their accounts.** When the engine first creates an account, a Salesforce user with the same name as the account's BDR becomes its owner. After that the engine never touches the owner.
 
 ## Quickstart
@@ -31,12 +34,14 @@ GitHub starts the engine, so nothing in a run needs a person, a laptop or a chat
 
 To write the scores into a Salesforce Developer org as well:
 
-4. Deploy the ten fields and the permission set: `sf project deploy start --source-dir force-app --target-org <your org>`
+4. Deploy the Salesforce setup: `sf project deploy start --source-dir force-app --target-org <your org>`. That is the ten fields, two permission sets, nine reports, the two dashboards, and the Account Scoring app with its Home page.
 5. In Salesforce Setup, create a user for the engine on the Salesforce Integration licence, give it the Salesforce API Integration permission set licence, and assign it the `Scoring_Engine` permission set. The engine logs in as this user, which can read, create and edit accounts but not delete them.
 6. In Setup, create an External Client App with the client credentials flow switched on, running as that user.
 7. Copy `.env.example` to `.env` and fill in the org address and the app's key and secret. Git ignores `.env`.
 8. Check the connection: `python check_salesforce.py` (reads only; it also confirms the engine can set an owner on a new account)
 9. Write and read back: `python write_back.py` (creates the 1,800 accounts the first time, then updates the same 1,800 on every later run)
+10. Give each person who should see the dashboards the `Scoring_Viewer` permission set. It lets them read the ten scoring fields and open the Account Scoring app, and nothing else.
+11. In Salesforce, open the App Launcher and pick **Account Scoring**. Home shows My Accounts; the team dashboard is under Dashboards. Press **Refresh** after a run: a dashboard shows the numbers from its last refresh.
 
 ## Running it on GitHub
 
@@ -69,11 +74,41 @@ All data in this repo is generated sample data. Names come from a fake-data libr
 The sample is 60 BDRs with 30 accounts each. Two limits belong to the free demo org, not to the design:
 
 - **Storage.** A Developer org stores about 2,500 account records, so 1,800 is close to what fits.
-- **Logins.** The org has a handful of spare user licences, so two of the 60 BDRs are real Salesforce users who own their accounts. The other 58 are names on accounts. In a real org every BDR would be a user and nothing else would change.
+- **Logins.** The org has a handful of spare user licences, so two of the 60 BDRs are real Salesforce users who own their accounts and can open their own dashboard. The other 58 are names on accounts. In a real org every BDR would be a user and nothing else would change.
 
 One limit belongs to the way the engine writes. Salesforce saves a request whole or not at all for up to 1,000 records, so the engine sends 1,800 accounts as two requests, in ranking order, and counts what was saved after each one. A run stops at the first request that fails and reports how many accounts were written.
 
 Above about 2,000 records Salesforce recommends its Bulk API 2.0, which saves each record by itself and reports the ones that failed. That is on the roadmap.
+
+## Dashboards
+
+Both dashboards, their reports, the Home page and the app are files in `force-app/`, deployed with the same command as the fields. Both count every account that has a tier, whoever created it.
+
+**My Accounts, for a BDR.** One dashboard shared by every BDR. Salesforce loads it as whoever is looking, and its reports are limited to accounts that person owns. So adding a BDR means adding a user; the dashboard doesn't change. It has three tiles: my accounts by tier, my Tier A and B accounts (highest score first, with when each was last scored), and my accounts outside my territory with the engine's note. It is the Home page of the Account Scoring app.
+
+![My Accounts as one BDR: a ring of 30 accounts by tier, a table of eight Tier B accounts sorted by score with the time each was last scored, and one account outside the BDR's territory with the engine's note.](docs/dashboard-my-accounts.png)
+
+**Team Account Scoring, for a manager.** Seven tiles: accounts scored, accounts outside their BDR's territory, accounts by tier, by segment and by region (each split by tier), Tier A and B accounts for each BDR, and every Tier A account with its BDR, segment, region, score and the time it was last scored.
+
+![The third row of the team dashboard: one bar for each BDR showing their Tier A and Tier B accounts, most first, beside a table of Tier A accounts with BDR, segment, region, score and last scored time.](docs/dashboard-team-bdr.png)
+
+Every BDR in the sample holds exactly 30 accounts, so a count of accounts per BDR would be 60 equal bars. The "by BDR" tile counts Tier A and B accounts instead: whose book is richest right now.
+
+What was proven in the Developer org:
+
+- Logged in as each of the two real BDR users, My Accounts showed that user's own 30 accounts and none of the other's. Every name, tier, score and note on screen matched a direct query of the accounts.
+- Both of those users are on the cheaper Salesforce Platform licence. It can open the dashboard and the app.
+- Every number on the team dashboard equals a direct count of the accounts.
+
+Things worth knowing:
+
+- **"Only their accounts" is about the dashboard.** It doesn't stop a BDR from opening another BDR's account elsewhere in Salesforce. Account sharing in the org is left as it is, and everyone inside the org can open both dashboards.
+- **Landing on it.** Salesforce has no setting that forces a page at every login. It returns each user to the app they used last, so a BDR picks Account Scoring from the App Launcher once and lands on My Accounts from then on.
+- **Someone who owns no accounts sees empty tiles** on My Accounts. That is correct: a manager's numbers are on the team dashboard.
+- **Neither demo BDR holds a Tier A account,** so their "Tier A and B" table shows Tier B only. About 5 in 100 sample accounts are Tier A.
+- **Times are shown in the viewer's own time zone.** The engine writes them in UTC.
+- **Two things only a person's eyes caught.** Salesforce accepted a number tile that pointed at a plain list report, then showed an error in its place on screen. And a chart's limit on "groups" counts every coloured part of a bar, not every bar, so the first version of the BDR tile quietly showed 32 of 60 BDRs. Tests now guard both, and a check reads what each tile holds after a refresh.
+- **Not tested:** deploying `force-app/` to a brand-new org. A check-only deploy of the whole folder passes against the Developer org, which already holds the fields.
 
 ## What the score means
 
