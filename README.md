@@ -24,7 +24,7 @@ The design is for GitHub to start the engine on a schedule or on demand, so that
 
 ## Quickstart
 
-1. Set up Python: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
+1. Set up Python 3.13 (the version named in `.python-version`): `python3.13 -m venv .venv && source .venv/bin/activate && pip install --require-hashes -r requirements.lock`. The lock file lists every library with a checksum, and pip refuses any file that doesn't match.
 2. Make the sample data: `python data/generate_sample.py`
 3. Score it locally: `python run_local.py` (prints tier counts, the top 3 accounts for each segment and the accounts outside their BDR's territory, and saves `output/scores.json`)
 
