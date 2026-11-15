@@ -1,0 +1,36 @@
+# Runs the tests on every pull request and on every push to main.
+# It needs no Salesforce credentials, so it is given none.
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# The job may read the code and nothing else.
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Each action is named by its exact commit id, which cannot be moved to
+      # different code the way a version tag can.
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+
+      # pip refuses any library whose checksum is not in the lock file.
+      - name: Install the libraries
+        run: python -m pip install --require-hashes -r requirements.lock
+
+      - name: Run the tests
+        run: python -m pytest

@@ -1,0 +1,62 @@
+# Scores the accounts and writes the results into Salesforce.
+# Started by hand with the Run button. The weekday schedule is added once
+# this has been seen working on GitHub.
+name: score-accounts
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_failure:
+        description: "Force a failure: feed the engine a file with a duplicate id. Nothing is written."
+        type: boolean
+        default: false
+
+# The job may read the code and nothing else.
+permissions:
+  contents: read
+
+# One run at a time. A second run waits for the first to finish.
+concurrency:
+  group: score-accounts
+  cancel-in-progress: false
+
+jobs:
+  score:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Each action is named by its exact commit id, which cannot be moved to
+      # different code the way a version tag can.
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+
+      # pip refuses any library whose checksum is not in the lock file.
+      # This step is given no Salesforce credentials.
+      - name: Install the libraries
+        run: python -m pip install --require-hashes -r requirements.lock
+
+      # Reads only. Fails here, before anything is written, if the login or a
+      # field is broken.
+      - name: Check the connection to Salesforce
+        env:
+          SF_INSTANCE_URL: ${{ secrets.SF_INSTANCE_URL }}
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_CLIENT_SECRET: ${{ secrets.SF_CLIENT_SECRET }}
+        run: python check_salesforce.py
+
+      # The tick box only chooses between two fixed file names. A scheduled
+      # run has no tick box, so it always uses the sample data.
+      - name: Score the accounts and write them to Salesforce
+        env:
+          SF_INSTANCE_URL: ${{ secrets.SF_INSTANCE_URL }}
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_CLIENT_SECRET: ${{ secrets.SF_CLIENT_SECRET }}
+          ACCOUNTS_FILE: ${{ inputs.force_failure && 'tests/fixtures/forced_failure_accounts.json' || 'data/accounts.json' }}
+        run: python write_back.py --accounts "$ACCOUNTS_FILE"

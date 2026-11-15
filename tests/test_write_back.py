@@ -651,3 +651,107 @@ def test_program_prints_the_rerun_advice_when_the_write_gets_no_answer_and_nothi
     assert "WRITE-BACK FAILED" in str(stopped.value.code)
     assert "Run it again; a rerun is safe." in str(stopped.value.code)
     assert "Scored 2, written 0, failed 2." in capsys.readouterr().out
+
+
+# --- Nothing the program prints may identify the org ------------------------
+# Run logs on GitHub can be read by anyone once the repository is public.
+
+LEAK = "Problem at https://marker-org.my.salesforce.com for marker.user@example.com, record 001MARK00000123AAA"
+
+
+def assert_identifies_nothing(text):
+    assert "mark" not in text.lower()
+    for value in ["example-dev-ed", "salesforce.com", "https://", "test-client-id", "test-client-secret", "test-token"]:
+        assert value not in text
+
+
+def test_program_names_a_rejected_account_without_repeating_what_identifies_the_org(tmp_path, capsys):
+    org = FakeOrg()
+    org.reject["ACC-0002"] = LEAK
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code) and "ACC-0002" in str(stopped.value.code)
+    assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
+
+
+def test_program_ends_an_error_nobody_expected_with_its_type_only(tmp_path, capsys):
+    org = FakeOrg()
+
+    def crash():
+        raise RuntimeError(LEAK)
+
+    org.before_write = crash
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code)
+    assert "RuntimeError" in str(stopped.value.code)
+    printed = capsys.readouterr().out
+    assert "Scored unknown, written unknown, failed unknown." in printed
+    assert_identifies_nothing(str(stopped.value.code) + printed)
+
+
+def test_program_hides_settings_that_salesforce_echoes_back_after_login(tmp_path, capsys):
+    org = FakeOrg()
+    org.reject["ACC-0002"] = "Refused for client test-client-id with secret test-client-secret"
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "ACC-0002: Refused for client" in str(stopped.value.code)
+    assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
+
+
+def test_program_explains_an_account_it_cannot_score_and_sends_nothing(tmp_path, capsys):
+    # An expected problem with the data: the engine's own words are shown.
+    org = FakeOrg()
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2, employees=10)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code)
+    assert "Account ACC-0002: employees is 10, which fits no segment" in str(stopped.value.code)
+    assert "Nothing was scored or written." in capsys.readouterr().out
+    assert org.requests == []
+
+
+def test_program_treats_a_value_error_nobody_expected_like_any_other_surprise(tmp_path, capsys):
+    # A ValueError from somewhere other than the data must not be mistaken for
+    # a data problem: its words are not repeated and the counts are not guessed.
+    org = FakeOrg()
+
+    def crash():
+        raise ValueError(LEAK)
+
+    org.before_write = crash
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code) and "ValueError" in str(stopped.value.code)
+    printed = capsys.readouterr().out
+    assert "Scored unknown, written unknown, failed unknown." in printed
+    assert "Nothing was scored or written." not in printed
+    assert_identifies_nothing(str(stopped.value.code) + printed)
+
+
+# --- Choosing the accounts file, and the file that forces a failure ----------
+
+def test_accounts_file_is_the_sample_data_unless_another_is_named():
+    from write_back import ACCOUNTS_PATH, accounts_file_from
+    assert accounts_file_from([]) == ACCOUNTS_PATH
+    assert str(accounts_file_from(["--accounts", "tests/fixtures/forced_failure_accounts.json"])) == (
+        "tests/fixtures/forced_failure_accounts.json"
+    )
+
+
+def test_forced_failure_file_stops_the_run_before_anything_is_sent(capsys):
+    # The file the Run button's "Force a failure" box feeds the engine: two
+    # accounts with the same id. The engine's own check must refuse it.
+    from write_back import PROJECT_FOLDER
+    org = FakeOrg()
+    with pytest.raises(SystemExit) as stopped:
+        main(PROJECT_FOLDER / "tests" / "fixtures" / "forced_failure_accounts.json", environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code)
+    assert "ACC-0001: id appears more than once" in str(stopped.value.code)
+    assert "nothing was sent" in str(stopped.value.code)
+    assert "Scored 2, written 0, failed 2." in capsys.readouterr().out
+    assert org.requests == [] and org.accounts == {}
