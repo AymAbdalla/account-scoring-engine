@@ -21,6 +21,7 @@ Run from the project folder:  python write_back.py
 import json
 import os
 import sys
+import traceback
 from pathlib import Path
 
 import requests
@@ -198,6 +199,18 @@ def main(accounts_path=ACCOUNTS_PATH, environ=None, http=requests):
         # account the engine cannot score.
         print("Nothing was scored or written.")
         sys.exit("WRITE-BACK FAILED: {}".format(error))
+    except Exception as error:
+        # An error nobody planned for. Its own words could repeat something
+        # from Salesforce, and this output can end up in a public log, so only
+        # its kind and where it happened are shown.
+        last_step = traceback.extract_tb(error.__traceback__)[-1]
+        print("Scored unknown, written unknown, failed unknown.")
+        sys.exit(
+            "WRITE-BACK FAILED: an unexpected error ({} at {} line {}). "
+            "The engine cannot tell whether anything was written.".format(
+                type(error).__name__, os.path.basename(last_step.filename), last_step.lineno
+            )
+        )
 
 
 if __name__ == "__main__":

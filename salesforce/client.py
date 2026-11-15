@@ -6,10 +6,17 @@ an External Client App in Salesforce. Nobody types a password. Salesforce
 answers with a token: a temporary pass that is sent along with every later
 request. A fresh token is fetched on every run and never saved.
 
-The id, the secret and the token are never printed. Every function here that
-talks to the network takes `http` as an argument. In normal use that is the
-`requests` library; in the tests it is a stand-in that plays Salesforce.
+The id, the secret and the token are never printed. Neither is anything that
+identifies the org: its address, a Salesforce id or a user name. A run's output
+ends up in a GitHub log, which anyone can read once the repository is public,
+so every message built from a Salesforce reply passes through `clean` first.
+
+Every function here that talks to the network takes `http` as an argument. In
+normal use that is the `requests` library; in the tests it is a stand-in that
+plays Salesforce.
 """
+import re
+
 import requests
 
 from salesforce.records import is_utc_time
@@ -21,6 +28,19 @@ MAX_BATCHES_PER_REQUEST = 5  # a cautious cap for this project (1,000 records); 
 ROLLED_BACK = "ALL_OR_NONE_OPERATION_ROLLED_BACK"  # on a record: another record was bad
 HALTED = "PROCESSING_HALTED"  # on a batch: another batch was bad
 SETTING_NAMES = ["SF_INSTANCE_URL", "SF_CLIENT_ID", "SF_CLIENT_SECRET"]
+MAX_MESSAGE_LENGTH = 300  # longest piece of Salesforce's own text that is repeated
+REASONS_SHOWN = 3
+
+# What `clean` removes from Salesforce's text, in this order.
+USER_NAME = re.compile(r"\S+@\S+")                                   # looks like an email address
+WEB_ADDRESS = re.compile(r"https?://\S+")
+HOST_NAME = re.compile(                                               # an address without the https
+    r"\b(?:[A-Za-z0-9-]+\.)+(?:com|net|org|io|dev|app|site|cloud)\b\S*", re.IGNORECASE
+)
+SESSION_TOKEN = re.compile(r"00D[A-Za-z0-9]{12,15}!\S+")              # an org id, "!", then the token
+SALESFORCE_ID = re.compile(                                           # 15 or 18 letters and digits, with a digit
+    r"(?<![A-Za-z0-9])(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?(?![A-Za-z0-9])"
+)
 
 
 class SalesforceError(Exception):
@@ -33,6 +53,49 @@ class NoAnswer(SalesforceError):
     Kept apart from a refusal because the advice differs: after a refusal the
     data needs fixing, after no answer the run can simply be tried again.
     """
+
+
+def clean(text, holding=None):
+    """Make a piece of Salesforce's text safe to print in a public log.
+
+    Removes the values the engine is holding (the settings or the session),
+    then anything shaped like a user name, a web address, a token or a
+    Salesforce id. Puts the text on one line, so it cannot start a line with
+    "::" (GitHub reads that as a command), and cuts it to a fixed length.
+    """
+    text = str(text)
+    held = [value for value in (holding or {}).values() if isinstance(value, str) and value]
+    held += [value.split("://", 1)[1] for value in held if "://" in value]  # the address without https
+    for value in sorted(held, key=len, reverse=True):
+        text = text.replace(value, "<hidden>")
+    text = USER_NAME.sub("<user>", text)
+    text = WEB_ADDRESS.sub("<address>", text)
+    text = HOST_NAME.sub("<address>", text)
+    text = SESSION_TOKEN.sub("<token>", text)
+    text = SALESFORCE_ID.sub("<id>", text)
+    text = " ".join(text.split()).replace("::", ":")
+    if len(text) > MAX_MESSAGE_LENGTH:
+        text = text[:MAX_MESSAGE_LENGTH] + "..."
+    return text
+
+
+def reason_given(answer, holding=None):
+    """Pick Salesforce's error codes and messages out of a refusal, cleaned.
+
+    Salesforce refuses with a list of {errorCode, message}, or at login with
+    {error, error_description}. The rest of the reply is never repeated.
+    """
+    reasons = []
+    for item in answer if isinstance(answer, list) else [answer]:
+        if not isinstance(item, dict):
+            continue
+        code = item.get("errorCode", item.get("error"))
+        message = item.get("message", item.get("error_description"))
+        if isinstance(code, str) and code:
+            reasons.append(clean("{}: {}".format(code, message) if isinstance(message, str) else code, holding))
+    if not reasons:
+        return "Salesforce gave no reason the engine could read"
+    return "; ".join(reasons[:REASONS_SHOWN])
 
 
 def read_settings(environ):
@@ -71,17 +134,18 @@ def log_in(settings, http=requests):
     try:
         response = http.post(url, data=form, timeout=TIMEOUT_SECONDS)
     except requests.exceptions.RequestException as error:
-        # Only the kind of error is shown, never its details, which could hold the request.
-        raise SalesforceError("Could not reach Salesforce at {} ({})".format(url, type(error).__name__))
+        # Only the kind of error is shown: never its details, which could hold
+        # the request, and never the address, which identifies the org.
+        raise SalesforceError("Could not reach Salesforce to log in ({})".format(type(error).__name__))
 
     answer = read_answer(response)
     if not isinstance(answer, dict):
         raise SalesforceError("Salesforce login failed (HTTP {})".format(response.status_code))
     if response.status_code != 200:
-        reason = "{}: {}".format(answer.get("error"), answer.get("error_description"))
-        # Belt and braces: if Salesforce ever echoed the secret back, hide it.
-        reason = reason.replace(settings["client_secret"], "<REDACTED>")
-        raise SalesforceError("Salesforce refused the login (HTTP {}): {}".format(response.status_code, reason))
+        # If Salesforce echoes the address, the client id or the secret back, they are hidden.
+        raise SalesforceError(
+            "Salesforce refused the login (HTTP {}): {}".format(response.status_code, reason_given(answer, settings))
+        )
     token = answer.get("access_token")
     if not isinstance(token, str) or not token:
         raise SalesforceError("Salesforce login gave no access token")
@@ -99,12 +163,14 @@ def read_account_fields(session, http=requests):
     try:
         response = http.get(url, headers=headers, timeout=TIMEOUT_SECONDS)
     except requests.exceptions.RequestException as error:
-        raise SalesforceError("Could not reach Salesforce at {} ({})".format(url, type(error).__name__))
+        raise SalesforceError("Could not reach Salesforce to read Account's fields ({})".format(type(error).__name__))
 
     answer = read_answer(response)
     if response.status_code != 200 or not isinstance(answer, dict):
         raise SalesforceError(
-            "Salesforce would not describe Account (HTTP {}): {}".format(response.status_code, answer)
+            "Salesforce would not describe Account (HTTP {}): {}".format(
+                response.status_code, reason_given(answer, session)
+            )
         )
     fields = answer.get("fields")
     in_expected_shape = isinstance(fields, list) and all(
@@ -157,7 +223,9 @@ def find_existing_ids(session, http=requests):
         answer = read_answer(response)
         if response.status_code != 200 or not isinstance(answer, dict):
             raise SalesforceError(
-                "Salesforce would not list the existing accounts (HTTP {}): {}".format(response.status_code, answer)
+                "Salesforce would not list the existing accounts (HTTP {}): {}".format(
+                    response.status_code, reason_given(answer, session)
+                )
             )
         wrong_shape = SalesforceError("Salesforce's list of existing accounts was not in the expected shape")
         records = answer.get("records")
@@ -224,7 +292,11 @@ def write_records(session, records, http=requests):
 
     answer = read_answer(response)
     if response.status_code != 200 or not isinstance(answer, dict) or "compositeResponse" not in answer:
-        raise SalesforceError("Salesforce rejected the write request (HTTP {}): {}".format(response.status_code, answer))
+        raise SalesforceError(
+            "Salesforce rejected the write request (HTTP {}): {}".format(
+                response.status_code, reason_given(answer, session)
+            )
+        )
 
     # A reply of "200 OK" does not mean every record was saved. Each batch has
     # its own status, and each record its own success flag, so check them all.
@@ -254,7 +326,7 @@ def write_records(session, records, http=requests):
             for item in results if isinstance(results, list) else []:
                 # "Processing halted" only means some OTHER batch was bad. Keep the real causes.
                 if isinstance(item, dict) and item.get("errorCode") and item["errorCode"] != HALTED:
-                    reasons.append("{}: {}".format(item["errorCode"], item.get("message")))
+                    reasons.append(clean("{}: {}".format(item["errorCode"], item.get("message")), session))
             continue
         for record, result in zip(batch, results):
             # Only a plain yes counts. Text such as "false", or a missing value, does not.
@@ -265,7 +337,7 @@ def write_records(session, records, http=requests):
             for error in errors if isinstance(errors, list) else []:
                 # "Rolled back" only means some OTHER record was bad. Keep the real causes.
                 if isinstance(error, dict) and error.get("statusCode") != ROLLED_BACK:
-                    reasons.append("{}: {}".format(record["Sample_Id__c"], error.get("message")))
+                    reasons.append("{}: {}".format(record["Sample_Id__c"], clean(error.get("message"), session)))
     if anything_failed:
         detail = "; ".join(reasons[:5]) if reasons else "Salesforce gave no reason"
         raise SalesforceError("Salesforce rejected the write and saved nothing. {}".format(detail))
@@ -285,7 +357,11 @@ def count_scored_at(session, scored_at, http=requests):
     )
     answer = read_answer(response)
     if response.status_code != 200 or not isinstance(answer, dict):
-        raise SalesforceError("Salesforce would not count the accounts (HTTP {}): {}".format(response.status_code, answer))
+        raise SalesforceError(
+            "Salesforce would not count the accounts (HTTP {}): {}".format(
+                response.status_code, reason_given(answer, session)
+            )
+        )
     total = answer.get("totalSize")
     # A whole number of zero or more. (Python counts True as a number, so rule that out by type.)
     if type(total) is not int or total < 0:
