@@ -165,9 +165,10 @@ def test_scoring_viewer_can_read_the_ten_fields_and_change_nothing():
     assert path.exists(), "the Scoring_Viewer permission set file is missing"
     root = ET.parse(path).getroot()
 
-    # Nothing in the file except a name, a description, field access and
-    # object access: no system permissions, no apps, no code, no tabs.
+    # Nothing in the file except a name, a description, field access, object
+    # access and which app it shows: no system permissions, no code, no tabs.
     assert {_strip(child.tag) for child in root} <= {
+        "applicationVisibilities",
         "description",
         "fieldPermissions",
         "hasActivationRequired",
@@ -322,3 +323,56 @@ def test_accounts_scored_number_and_tier_chart_share_one_report():
     assert _text(number, "componentType") == "Metric"
     assert _text(number, "report") == _text(chart, "report")
     assert _groupings(reports()[_text(chart, "report")]) == ["Account.Tier__c"]
+
+
+# --- The Account Scoring app: My Accounts as the landing page (plan, db-6) ---
+
+HOME_PAGE = BASE / "flexipages" / "Account_Scoring_Home.flexipage-meta.xml"
+APP = BASE / "applications" / "Account_Scoring.app-meta.xml"
+
+
+def test_account_scoring_home_page_shows_the_my_accounts_dashboard():
+    assert HOME_PAGE.exists(), "the Account Scoring Home page file is missing"
+    page = ET.parse(HOME_PAGE).getroot()
+    assert _text(page, "type") == "HomePage"
+
+    shown = []
+    for component in page.iter(NS + "componentInstance"):
+        if _text(component, "componentName") != "desktopDashboards:embeddedDashboard":
+            continue
+        for setting in component.findall(NS + "componentInstanceProperties"):
+            if _text(setting, "name") == "dashboardName":
+                shown.append(_text(setting, "value"))
+    # The page names a dashboard without its folder; ours is Account_Scoring/My_Accounts.
+    assert shown == ["My_Accounts"]
+    assert MY_ACCOUNTS in dashboards(), "the dashboard the Home page shows is not in the repository"
+
+
+def test_account_scoring_app_opens_on_that_home_page():
+    assert APP.exists(), "the Account Scoring app file is missing"
+    app = ET.parse(APP).getroot()
+    assert [tab.text for tab in app.findall(NS + "tabs")][0] == "standard-home", "Home is not the app's first tab"
+
+    homes = [
+        _text(override, "content")
+        for override in app.findall(NS + "actionOverrides")
+        if _text(override, "pageOrSobjectType") == "standard-home" and _text(override, "type") == "Flexipage"
+    ]
+    assert homes == ["Account_Scoring_Home"]
+    assert HOME_PAGE.exists(), "the app's Home page is not in the repository"
+
+
+def test_scoring_viewer_can_open_the_account_scoring_app_and_no_other():
+    path = BASE / "permissionsets" / "Scoring_Viewer.permissionset-meta.xml"
+    root = ET.parse(path).getroot()
+    visible = [
+        (_text(item, "application"), _text(item, "visible")) for item in root.findall(NS + "applicationVisibilities")
+    ]
+    assert visible == [("Account_Scoring", "true")]
+
+
+def test_the_repository_changes_no_profile_and_no_standard_app():
+    # The landing page is a new app of our own. Editing a profile or one of
+    # Salesforce's own apps would change what other users see.
+    assert not list(BASE.glob("profiles/*")), "a profile file is in the repository"
+    assert not list(BASE.glob("applications/standard__*")), "a file for a standard Salesforce app is in the repository"
