@@ -581,3 +581,29 @@ def test_user_name_read_on_one_page_is_hidden_when_a_later_page_is_refused():
         find_active_users(SESSION, http=salesforce)
     assert "UNKNOWN_EXCEPTION: Lost the row for <user>" in str(caught.value)
     assert "Private" not in str(caught.value)
+
+
+# --- Salesforce's own wording is never repeated ------------------------------
+
+def test_refusal_shows_the_error_code_and_none_of_salesforces_wording():
+    from salesforce.client import count_scored_at
+    refusal = FakeResponse(500, [{"errorCode": "UNKNOWN_EXCEPTION", "message": "Row locked by Private Manager"}])
+    with pytest.raises(SalesforceError) as caught:
+        count_scored_at(SESSION, "2026-11-14T12:00:00Z", http=ScriptedSalesforce([refusal]))
+    assert str(caught.value) == "Salesforce would not count the accounts (HTTP 500): UNKNOWN_EXCEPTION"
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["Private Manager", "Manager", "A01MARK00000123AAA", "PRIVATE-MANAGER", "X" * 81],
+)
+def test_error_code_that_is_not_shaped_like_a_code_is_not_repeated(code):
+    # Only text shaped like one of Salesforce's codes (INVALID_SESSION_ID,
+    # invalid_grant) is shown. Anything else could be a name or an id.
+    from salesforce.client import count_scored_at
+    refusal = FakeResponse(500, [{"errorCode": code, "message": "no matter"}])
+    with pytest.raises(SalesforceError) as caught:
+        count_scored_at(SESSION, "2026-11-14T12:00:00Z", http=ScriptedSalesforce([refusal]))
+    assert str(caught.value) == (
+        "Salesforce would not count the accounts (HTTP 500): Salesforce gave no reason the engine could read"
+    )

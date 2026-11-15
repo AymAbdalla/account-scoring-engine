@@ -985,3 +985,75 @@ def test_program_hides_a_users_plain_name_when_the_count_after_the_write_is_refu
     shown = str(stopped.value.code) + capsys.readouterr().out
     assert "UNKNOWN_EXCEPTION: Row locked by <user>" in shown
     assert "Private" not in shown
+
+
+# Salesforce's own wording is never repeated. Its messages are free text and
+# can hold a person's name, which has no shape a pattern could catch, and the
+# engine cannot know every name in the org. So a message shows only the error
+# code, the account's Sample Id and the field, which say what to fix.
+
+def org_that_already_has(*numbers):
+    """A fake org that holds these accounts already, so the run only updates
+    and never reads the users."""
+    org = FakeOrg()
+    for number in numbers:
+        sample_id = "ACC-{:04d}".format(number)
+        org.accounts[sample_id] = {"Sample_Id__c": sample_id, "Name": "Sample Company {}".format(number)}
+    return org
+
+
+@pytest.mark.parametrize(
+    "wording",
+    [
+        "Row locked by Private Manager",
+        "Row locked by PRIVATE MANAGER",
+        "Row locked by Private  Manager",
+    ],
+)
+def test_run_that_only_updates_never_repeats_a_name_from_a_refused_record(tmp_path, capsys, wording):
+    org = org_that_already_has(1, 2)
+    org.reject["ACC-0002"] = wording
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    shown = str(stopped.value.code) + capsys.readouterr().out
+    assert "users" not in [kind for kind, _ in org.requests]  # no name was ever read
+    assert "ACC-0002: INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST (Tier__c)" in shown
+    assert "private" not in shown.lower() and "manager" not in shown.lower()
+
+
+def test_run_that_only_updates_never_repeats_a_name_from_a_refused_count(tmp_path, capsys):
+    org = org_that_already_has(1, 2)
+    org.count_script = [FakeResponse(500, [{"errorCode": "UNKNOWN_EXCEPTION", "message": "Row locked by Private Manager"}])]
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    shown = str(stopped.value.code) + capsys.readouterr().out
+    assert "(HTTP 500): UNKNOWN_EXCEPTION Nothing was sent." in shown
+    assert "private" not in shown.lower() and "manager" not in shown.lower()
+
+
+def test_fresh_process_that_only_updates_never_repeats_a_name():
+    # The same check in a brand-new Python process, so nothing an earlier run
+    # or test left in memory can be what hides the name.
+    import subprocess
+    import sys
+    program = """
+import sys
+sys.path.insert(0, "tests")
+import pytest
+import test_write_back as t
+from write_back import main
+import pathlib, tempfile, json
+org = t.org_that_already_has(1, 2)
+org.reject["ACC-0002"] = "Row locked by Private Manager"
+path = pathlib.Path(tempfile.mkdtemp()) / "accounts.json"
+path.write_text(json.dumps([t.make_account(1), t.make_account(2)]))
+main(path, environ=t.ENVIRONMENT, http=org)
+"""
+    finished = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True)
+    shown = finished.stdout + finished.stderr
+    assert finished.returncode == 1
+    assert "WRITE-BACK FAILED" in shown
+    assert "ACC-0002: INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST (Tier__c)" in shown
+    assert "private" not in shown.lower() and "manager" not in shown.lower()
