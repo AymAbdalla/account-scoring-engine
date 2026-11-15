@@ -89,13 +89,13 @@ def test_combine_joins_each_score_to_its_account():
     assert combine(accounts, results) == [make_row(1)]
 
 
-def test_all_300_sample_scores_pass_the_check():
+def test_all_1800_sample_scores_pass_the_check():
     # The real sample data, scored and territory-checked, has nothing to report.
-    # That includes the 3 accounts whose region is unknown.
+    # That includes the 18 accounts whose region is unknown.
     with open("data/accounts.json") as accounts_file:
         accounts = json.load(accounts_file)
     rows = combine(accounts, score_all(accounts, RULES, load_roster(RULES)))
-    assert len(rows) == 300
+    assert len(rows) == 1800
     assert find_problems(rows, LIMITS, RULES) == []
 
 
