@@ -355,3 +355,137 @@ def test_login_token_that_is_not_text_is_an_error(token):
 def test_login_answer_with_an_odd_org_address_falls_back_to_the_configured_one():
     reply = FakeResponse(200, {"access_token": "test-token", "instance_url": 5})
     assert log_in(SETTINGS, http=FakeSalesforce(reply)) == SESSION
+
+
+# --- Nothing the engine prints may identify the org -------------------------
+# Run logs on GitHub can be read by anyone once the repository is public. So a
+# message built from a Salesforce reply, or from a network error, must never
+# carry the org's address, a Salesforce id, a user name or a token. Here the
+# stand-in puts all of those inside its replies; every one contains "mark".
+
+ORG_HOST = "example-dev-ed.develop.my.salesforce.com"
+MARKERS = [
+    "https://marker-org.my.salesforce.com/services/data",  # a web address
+    "marker-org.my.salesforce.com",                        # an org address without the https
+    "001MARK00000123AAA",                                   # an 18-character record id
+    "00DMARK00000123",                                      # a 15-character org id
+    "marker.user@example.com",                              # a user name
+    "00DMARK00000123!AQEAQmarkSessionToken.x_y",            # a session token
+]
+LEAK = "Problem for " + " and ".join(MARKERS)
+LEAK_AT_LOGIN = LEAK + " with test-client-id and test-client-secret"  # what the engine holds at login
+LEAK_LATER = LEAK + " using test-token"                                # what it holds after login
+
+
+def assert_identifies_nothing(text):
+    assert "mark" not in text.lower()
+    for value in [ORG_HOST, "salesforce.com", "https://", "test-client-id", "test-client-secret", "test-token"]:
+        assert value not in text
+
+
+def refused_login():
+    reply = FakeResponse(400, {"error": "invalid_grant", "error_description": LEAK_AT_LOGIN})
+    log_in(SETTINGS, http=FakeSalesforce(reply))
+
+
+def refused_field_read():
+    reply = FakeResponse(401, [{"errorCode": "INVALID_SESSION_ID", "message": LEAK_LATER}])
+    read_account_fields(SESSION, http=FakeSalesforce(reply))
+
+
+def refused_list_of_accounts():
+    from salesforce.client import find_existing_ids
+    reply = FakeResponse(503, [{"errorCode": "SERVER_UNAVAILABLE", "message": LEAK_LATER}])
+    find_existing_ids(SESSION, http=ScriptedSalesforce([reply]))
+
+
+def refused_count():
+    from salesforce.client import count_scored_at
+    reply = FakeResponse(400, [{"errorCode": "MALFORMED_QUERY", "message": LEAK_LATER}])
+    count_scored_at(SESSION, "2026-11-14T12:00:00Z", http=ScriptedSalesforce([reply]))
+
+
+def refused_write_request():
+    from salesforce.client import write_records
+    reply = FakeResponse(400, [{"errorCode": "INVALID_FIELD", "message": LEAK_LATER}])
+    write_records(SESSION, RECORDS, http=WriteReply(reply))
+
+
+def refused_batch():
+    from salesforce.client import write_records
+    reply = FakeResponse(200, {"compositeResponse": [{
+        "httpStatusCode": 400, "body": [{"errorCode": "INVALID_FIELD", "message": LEAK_LATER}]}]})
+    write_records(SESSION, RECORDS, http=WriteReply(reply))
+
+
+def refused_record():
+    from salesforce.client import write_records
+    bad = {"success": False, "created": False,
+           "errors": [{"statusCode": "DUPLICATE_VALUE", "message": LEAK_LATER, "fields": []}]}
+    reply = FakeResponse(200, {"compositeResponse": [{"httpStatusCode": 200, "body": [SAVED, bad]}]})
+    write_records(SESSION, RECORDS, http=WriteReply(reply))
+
+
+@pytest.mark.parametrize(
+    "refusal, still_says",
+    [
+        (refused_login, "invalid_grant"),
+        (refused_field_read, "INVALID_SESSION_ID"),
+        (refused_list_of_accounts, "SERVER_UNAVAILABLE"),
+        (refused_count, "MALFORMED_QUERY"),
+        (refused_write_request, "INVALID_FIELD"),
+        (refused_batch, "INVALID_FIELD"),
+        (refused_record, "ACC-0002"),
+    ],
+)
+def test_refusal_keeps_salesforces_error_code_and_identifies_nothing(refusal, still_says):
+    with pytest.raises(SalesforceError) as caught:
+        refusal()
+    assert still_says in str(caught.value)
+    assert "Problem for" in str(caught.value)  # Salesforce's own words are kept
+    assert_identifies_nothing(str(caught.value))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"unexpected": LEAK},        # a reply in a shape the engine does not know
+        [{"detail": LEAK}],
+        LEAK,
+    ],
+)
+def test_refusal_in_an_unknown_shape_is_reported_by_its_status_only(body):
+    with pytest.raises(SalesforceError, match="HTTP 500") as caught:
+        read_account_fields(SESSION, http=FakeSalesforce(FakeResponse(500, body)))
+    assert_identifies_nothing(str(caught.value))
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ConnectionError("could not connect to " + LEAK),
+        requests.exceptions.InvalidURL("bad address " + LEAK),
+    ],
+)
+@pytest.mark.parametrize("request_made", ["login", "field read"])
+def test_network_failure_names_neither_the_org_nor_the_request(error, request_made):
+    salesforce = FakeSalesforce(error=error)
+    with pytest.raises(SalesforceError, match="Could not reach Salesforce") as caught:
+        if request_made == "login":
+            log_in(SETTINGS, http=salesforce)
+        else:
+            read_account_fields(SESSION, http=salesforce)
+    assert type(error).__name__ in str(caught.value)
+    assert_identifies_nothing(str(caught.value))
+
+
+def test_salesforce_text_cannot_start_a_line_or_run_on_without_end():
+    # GitHub reads a printed line that starts with "::" as a command to itself.
+    message = "first line\n::add-mask::something\n" + "long " * 2000
+    reply = FakeResponse(401, [{"errorCode": "INVALID_SESSION_ID", "message": message}])
+    with pytest.raises(SalesforceError) as caught:
+        read_account_fields(SESSION, http=FakeSalesforce(reply))
+    text = str(caught.value)
+    assert "INVALID_SESSION_ID" in text and "first line" in text
+    assert not any(line.lstrip().startswith("::") for line in text.splitlines())
+    assert len(text) < 1000

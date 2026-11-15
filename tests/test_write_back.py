@@ -651,3 +651,42 @@ def test_program_prints_the_rerun_advice_when_the_write_gets_no_answer_and_nothi
     assert "WRITE-BACK FAILED" in str(stopped.value.code)
     assert "Run it again; a rerun is safe." in str(stopped.value.code)
     assert "Scored 2, written 0, failed 2." in capsys.readouterr().out
+
+
+# --- Nothing the program prints may identify the org ------------------------
+# Run logs on GitHub can be read by anyone once the repository is public.
+
+LEAK = "Problem at https://marker-org.my.salesforce.com for marker.user@example.com, record 001MARK00000123AAA"
+
+
+def assert_identifies_nothing(text):
+    assert "mark" not in text.lower()
+    for value in ["example-dev-ed", "salesforce.com", "https://", "test-client-id", "test-client-secret", "test-token"]:
+        assert value not in text
+
+
+def test_program_names_a_rejected_account_without_repeating_what_identifies_the_org(tmp_path, capsys):
+    org = FakeOrg()
+    org.reject["ACC-0002"] = LEAK
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code) and "ACC-0002" in str(stopped.value.code)
+    assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
+
+
+def test_program_ends_an_error_nobody_expected_with_its_type_only(tmp_path, capsys):
+    org = FakeOrg()
+
+    def crash():
+        raise RuntimeError(LEAK)
+
+    org.before_write = crash
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code)
+    assert "RuntimeError" in str(stopped.value.code)
+    printed = capsys.readouterr().out
+    assert "Scored unknown, written unknown, failed unknown." in printed
+    assert_identifies_nothing(str(stopped.value.code) + printed)
