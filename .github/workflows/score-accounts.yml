@@ -1,9 +1,14 @@
 # Scores the accounts and writes the results into Salesforce.
-# Started by hand with the Run button. The weekday schedule is added once
-# this has been seen working on GitHub.
+# Runs by itself on weekdays, and by hand with the Run button.
 name: score-accounts
 
 on:
+  # Weekdays at 7:00 AM in New York, all year: minute 0, hour 7, any day of
+  # the month, any month, Monday to Friday. GitHub queues scheduled runs, so
+  # the start can be a few minutes late.
+  schedule:
+    - cron: '0 7 * * 1-5'
+      timezone: "America/New_York"
   workflow_dispatch:
     inputs:
       force_failure:
