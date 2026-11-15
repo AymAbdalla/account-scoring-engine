@@ -731,3 +731,27 @@ def test_program_treats_a_value_error_nobody_expected_like_any_other_surprise(tm
     assert "Scored unknown, written unknown, failed unknown." in printed
     assert "Nothing was scored or written." not in printed
     assert_identifies_nothing(str(stopped.value.code) + printed)
+
+
+# --- Choosing the accounts file, and the file that forces a failure ----------
+
+def test_accounts_file_is_the_sample_data_unless_another_is_named():
+    from write_back import ACCOUNTS_PATH, accounts_file_from
+    assert accounts_file_from([]) == ACCOUNTS_PATH
+    assert str(accounts_file_from(["--accounts", "tests/fixtures/forced_failure_accounts.json"])) == (
+        "tests/fixtures/forced_failure_accounts.json"
+    )
+
+
+def test_forced_failure_file_stops_the_run_before_anything_is_sent(capsys):
+    # The file the Run button's "Force a failure" box feeds the engine: two
+    # accounts with the same id. The engine's own check must refuse it.
+    from write_back import PROJECT_FOLDER
+    org = FakeOrg()
+    with pytest.raises(SystemExit) as stopped:
+        main(PROJECT_FOLDER / "tests" / "fixtures" / "forced_failure_accounts.json", environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code)
+    assert "ACC-0001: id appears more than once" in str(stopped.value.code)
+    assert "nothing was sent" in str(stopped.value.code)
+    assert "Scored 2, written 0, failed 2." in capsys.readouterr().out
+    assert org.requests == [] and org.accounts == {}

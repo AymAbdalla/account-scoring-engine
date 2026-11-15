@@ -185,6 +185,10 @@ def write_back(accounts, rules, roster, limits, session, http=requests, say=prin
     return {"scored": scored, "written": written, "failed": 0}
 
 
+def accounts_file_from(arguments):
+    return None  # stub: lets the test reach its assertion
+
+
 def main(accounts_path=ACCOUNTS_PATH, environ=None, http=requests):
     """Run the whole program. `environ` and `http` are only passed in by the tests."""
     if environ is None:

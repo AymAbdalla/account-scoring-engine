@@ -205,3 +205,70 @@ def test_other_system_or_no_time_limit_is_a_problem():
 def test_job_that_runs_another_workflow_is_a_problem():
     problems = broken(lambda w: job(w).update(uses="someone/repo/.github/workflows/x.yml@main"))
     assert problems == ["job tests runs another workflow"]
+
+
+# --- The scheduled run and its Run button: score-accounts.yml ----------------
+
+SECRET_NAMES = ["SF_CLIENT_ID", "SF_CLIENT_SECRET", "SF_INSTANCE_URL"]
+CHECK_COMMAND = "python check_salesforce.py"
+WRITE_COMMAND = 'python write_back.py --accounts "$ACCOUNTS_FILE"'
+# Which accounts file a run uses. A scheduled run has no tick box, so the
+# tick box counts as "no" and the real sample data is used.
+ACCOUNTS_FILE_CHOICE = (
+    "${{ inputs.force_failure && 'tests/fixtures/forced_failure_accounts.json' || 'data/accounts.json' }}"
+)
+
+
+def score_workflow():
+    return read_workflow("score-accounts.yml")
+
+
+def secrets_named_in(value):
+    return sorted(set(re.findall(r"secrets\.(\w+)", str(value))))
+
+
+def test_score_workflow_exists():
+    assert (WORKFLOW_FOLDER / "score-accounts.yml").is_file()
+
+
+def test_score_workflow_starts_only_from_the_run_button_with_a_yes_or_no_box():
+    triggers = triggers_of(score_workflow())
+    assert list(triggers) == ["workflow_dispatch"]
+    box = triggers["workflow_dispatch"]["inputs"]
+    assert list(box) == ["force_failure"]
+    assert box["force_failure"]["type"] == "boolean"
+    assert box["force_failure"]["default"] is False
+
+
+def test_score_workflow_runs_one_at_a_time_and_never_cancels_a_run_in_progress():
+    assert score_workflow()["concurrency"] == {"group": "score-accounts", "cancel-in-progress": False}
+
+
+def test_score_workflow_checks_the_connection_and_then_writes_with_the_same_script_every_time():
+    commands = [step["run"].strip() for step in steps_of(score_workflow()) if "run" in step]
+    assert commands == [INSTALL_COMMAND, CHECK_COMMAND, WRITE_COMMAND]
+
+
+def test_secrets_are_handed_only_to_the_two_salesforce_steps():
+    workflow = score_workflow()
+    for step in steps_of(workflow):
+        expected = SECRET_NAMES if step.get("run", "").strip() in (CHECK_COMMAND, WRITE_COMMAND) else []
+        assert secrets_named_in(step) == expected
+    # Nothing outside the steps names a secret either.
+    text = (WORKFLOW_FOLDER / "score-accounts.yml").read_text()
+    assert len(re.findall(r"secrets\.", text)) == 2 * len(SECRET_NAMES)
+    assert "env" not in workflow
+    assert all("env" not in job for job in workflow["jobs"].values())
+
+
+def test_tick_box_only_chooses_between_two_fixed_files_and_never_enters_a_command():
+    text = (WORKFLOW_FOLDER / "score-accounts.yml").read_text()
+    steps = steps_of(score_workflow())
+    write_step = [step for step in steps if step.get("run", "").strip() == WRITE_COMMAND][0]
+    assert write_step["env"]["ACCOUNTS_FILE"] == ACCOUNTS_FILE_CHOICE
+    assert text.count("inputs.") == 1          # used once, in that choice
+    assert "github.event" not in text
+    assert all("${{" not in step.get("run", "") for step in steps)
+    project = WORKFLOW_FOLDER.parent.parent
+    assert (project / "tests/fixtures/forced_failure_accounts.json").is_file()
+    assert (project / "data/accounts.json").is_file()
