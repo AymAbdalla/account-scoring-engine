@@ -405,7 +405,10 @@ def test_by_bdr_tile_shows_every_bdrs_tier_a_and_b_accounts_most_first():
     wanted = ["Account.BDR__c", "Account.Tier__c"]
     assert [g.text for g in tile.findall(NS + "groupingColumn")] == wanted
     assert _text(tile, "sortBy") == "RowValueDescending"
-    assert int(_text(tile, "maxValuesDisplayed")) >= 60, "the tile would cut off some of the 60 BDRs"
+    # Salesforce counts every coloured part of a bar, not every bar: 60 BDRs
+    # with a Tier A part and a Tier B part are up to 120. At 60 the tile
+    # showed only 32 BDRs.
+    assert int(_text(tile, "maxValuesDisplayed")) >= 120, "the tile would cut off some of the 60 BDRs"
 
     report = reports()[_text(tile, "report")]
     assert _groupings(report) == wanted
