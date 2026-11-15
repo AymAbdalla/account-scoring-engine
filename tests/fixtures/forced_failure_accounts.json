@@ -1,0 +1,26 @@
+[
+  {
+    "id": "ACC-0001",
+    "name": "Sanchez-Taylor",
+    "hq_country": "United States",
+    "bdr": "Danielle Johnson",
+    "employees": 56,
+    "countries": 2,
+    "industry": "manufacturing",
+    "hiring_surge": true,
+    "new_hr_leader": false,
+    "days_since_engaged": 154
+  },
+  {
+    "id": "ACC-0001",
+    "name": "Sanchez-Taylor",
+    "hq_country": "United States",
+    "bdr": "Danielle Johnson",
+    "employees": 56,
+    "countries": 2,
+    "industry": "manufacturing",
+    "hiring_surge": true,
+    "new_hr_leader": false,
+    "days_since_engaged": 154
+  }
+]

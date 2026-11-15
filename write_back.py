@@ -17,7 +17,9 @@ It is safe to run twice: accounts are matched on their Sample Id, so a second
 run updates the same 300 accounts and creates no duplicates.
 
 Run from the project folder:  python write_back.py
+To score another file:        python write_back.py --accounts <file>
 """
+import argparse
 import json
 import os
 import sys
@@ -186,7 +188,14 @@ def write_back(accounts, rules, roster, limits, session, http=requests, say=prin
 
 
 def accounts_file_from(arguments):
-    return None  # stub: lets the test reach its assertion
+    """Read the command line. With no option, the sample data is used.
+
+    --accounts names another file of accounts. The GitHub workflow uses it to
+    force a failure on purpose, with a file that holds a duplicate id.
+    """
+    parser = argparse.ArgumentParser(description="Score the accounts and write the results into Salesforce.")
+    parser.add_argument("--accounts", type=Path, default=ACCOUNTS_PATH, help="the accounts file to score")
+    return parser.parse_args(arguments).accounts
 
 
 def main(accounts_path=ACCOUNTS_PATH, environ=None, http=requests):
@@ -226,4 +235,4 @@ def main(accounts_path=ACCOUNTS_PATH, environ=None, http=requests):
 
 
 if __name__ == "__main__":
-    main()
+    main(accounts_file_from(sys.argv[1:]))
