@@ -566,3 +566,18 @@ def test_owner_field_check_reports_a_field_that_is_hidden_or_cannot_be_set_on_cr
     assert len(hidden) == 1 and "cannot see" in hidden[0]
     fixed = find_owner_problems({"OwnerId": {"name": "OwnerId", "createable": False, "updateable": True}})
     assert len(fixed) == 1 and "cannot set" in fixed[0]
+
+
+def test_user_name_read_on_one_page_is_hidden_when_a_later_page_is_refused():
+    # A plain display name is not shaped like an email address or an id, so
+    # only knowing the names that were read can keep them out of a message.
+    from salesforce.client import find_active_users
+    salesforce = ScriptedSalesforce([
+        FakeResponse(200, {"nextRecordsUrl": "/services/data/v68.0/query/01g-2000", "records": [
+            {"Id": "005000000000001AAA", "Name": "Private Manager"}]}),
+        FakeResponse(500, [{"errorCode": "UNKNOWN_EXCEPTION", "message": "Lost the row for Private Manager"}]),
+    ])
+    with pytest.raises(SalesforceError) as caught:
+        find_active_users(SESSION, http=salesforce)
+    assert "UNKNOWN_EXCEPTION: Lost the row for <user>" in str(caught.value)
+    assert "Private" not in str(caught.value)

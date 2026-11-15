@@ -958,3 +958,30 @@ def test_program_hides_an_owner_id_that_salesforce_repeats_in_a_refusal(tmp_path
         main(path, environ=ENVIRONMENT, http=org)
     assert "ACC-0002" in str(stopped.value.code)
     assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
+
+
+def test_program_hides_a_users_plain_name_that_salesforce_repeats_in_a_refusal(tmp_path, capsys):
+    # "Private Manager" is a user's display name that is in no file of this
+    # project. Salesforce repeats it in a refusal after the users were read.
+    org = FakeOrg()
+    org.users = [{"Id": OWNER_ID, "Name": "Sample Person"}, {"Id": "005MARK00000999AAA", "Name": "Private Manager"}]
+    org.reject["ACC-0002"] = "Owner cannot be changed; ask Private Manager"
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    shown = str(stopped.value.code) + capsys.readouterr().out
+    assert "ACC-0002: Owner cannot be changed; ask <user>" in shown
+    assert "Private" not in shown
+    assert_identifies_nothing(shown)
+
+
+def test_program_hides_a_users_plain_name_when_the_count_after_the_write_is_refused(tmp_path, capsys):
+    org = FakeOrg()
+    org.users = [{"Id": OWNER_ID, "Name": "Private Manager"}]
+    org.count_script = [0, FakeResponse(500, [{"errorCode": "UNKNOWN_EXCEPTION", "message": "Row locked by Private Manager"}])]
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    shown = str(stopped.value.code) + capsys.readouterr().out
+    assert "UNKNOWN_EXCEPTION: Row locked by <user>" in shown
+    assert "Private" not in shown
