@@ -28,7 +28,8 @@ class FakeResponse:
 class FakeOrg:
     """Answers the login, then the request for Account's fields."""
 
-    def __init__(self, login=None, fields=None, crash=None):
+    def __init__(self, login=None, fields=None, crash=None, fields_refusal=None):
+        self.fields_refusal = fields_refusal
         self.login = login or FakeResponse(200, {
             "access_token": "test-token",
             "instance_url": "https://marker-org.my.salesforce.com",
@@ -44,7 +45,7 @@ class FakeOrg:
         return self.login
 
     def get(self, url, headers=None, timeout=None):
-        return self.fields
+        return self.fields_refusal or self.fields
 
 
 def assert_identifies_nothing(text):
@@ -83,4 +84,13 @@ def test_error_nobody_expected_ends_with_its_type_only(capsys):
         main(environ=ENVIRONMENT, http=FakeOrg(crash=RuntimeError(LEAK)))
     assert "Salesforce check failed" in str(stopped.value.code)
     assert "RuntimeError" in str(stopped.value.code)
+    assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
+
+
+def test_settings_echoed_back_after_login_are_still_hidden(capsys):
+    echo = "Refused for client test-client-id with secret test-client-secret"
+    refusal = FakeResponse(401, [{"errorCode": "INVALID_SESSION_ID", "message": echo}])
+    with pytest.raises(SystemExit) as stopped:
+        main(environ=ENVIRONMENT, http=FakeOrg(fields_refusal=refusal))
+    assert "INVALID_SESSION_ID: Refused for client" in str(stopped.value.code)
     assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)

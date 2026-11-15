@@ -497,3 +497,16 @@ def test_field_names_and_plain_words_in_salesforces_text_are_kept():
     with pytest.raises(SalesforceError) as caught:
         read_account_fields(SESSION, http=FakeSalesforce(reply))
     assert "STRING_TOO_LONG: Account.Name: data value too large (max length=255)" in str(caught.value)
+
+
+def test_settings_echoed_back_after_login_are_still_hidden():
+    # After the login the engine no longer passes its settings around, but a
+    # later reply could still repeat the client id or the secret.
+    logged_in = FakeResponse(200, {"access_token": "test-token", "instance_url": "https://" + ORG_HOST})
+    session = log_in(SETTINGS, http=FakeSalesforce(logged_in))
+    echo = "Refused for client test-client-id with secret test-client-secret"
+    reply = FakeResponse(401, [{"errorCode": "INVALID_SESSION_ID", "message": echo}])
+    with pytest.raises(SalesforceError) as caught:
+        read_account_fields(session, http=FakeSalesforce(reply))
+    assert "INVALID_SESSION_ID: Refused for client" in str(caught.value)
+    assert_identifies_nothing(str(caught.value))

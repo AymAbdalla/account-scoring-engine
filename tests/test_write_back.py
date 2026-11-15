@@ -690,3 +690,44 @@ def test_program_ends_an_error_nobody_expected_with_its_type_only(tmp_path, caps
     printed = capsys.readouterr().out
     assert "Scored unknown, written unknown, failed unknown." in printed
     assert_identifies_nothing(str(stopped.value.code) + printed)
+
+
+def test_program_hides_settings_that_salesforce_echoes_back_after_login(tmp_path, capsys):
+    org = FakeOrg()
+    org.reject["ACC-0002"] = "Refused for client test-client-id with secret test-client-secret"
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "ACC-0002: Refused for client" in str(stopped.value.code)
+    assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
+
+
+def test_program_explains_an_account_it_cannot_score_and_sends_nothing(tmp_path, capsys):
+    # An expected problem with the data: the engine's own words are shown.
+    org = FakeOrg()
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2, employees=10)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code)
+    assert "Account ACC-0002: employees is 10, which fits no segment" in str(stopped.value.code)
+    assert "Nothing was scored or written." in capsys.readouterr().out
+    assert org.requests == []
+
+
+def test_program_treats_a_value_error_nobody_expected_like_any_other_surprise(tmp_path, capsys):
+    # A ValueError from somewhere other than the data must not be mistaken for
+    # a data problem: its words are not repeated and the counts are not guessed.
+    org = FakeOrg()
+
+    def crash():
+        raise ValueError(LEAK)
+
+    org.before_write = crash
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "WRITE-BACK FAILED" in str(stopped.value.code) and "ValueError" in str(stopped.value.code)
+    printed = capsys.readouterr().out
+    assert "Scored unknown, written unknown, failed unknown." in printed
+    assert "Nothing was scored or written." not in printed
+    assert_identifies_nothing(str(stopped.value.code) + printed)
