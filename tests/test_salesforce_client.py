@@ -489,3 +489,11 @@ def test_salesforce_text_cannot_start_a_line_or_run_on_without_end():
     assert "INVALID_SESSION_ID" in text and "first line" in text
     assert not any(line.lstrip().startswith("::") for line in text.splitlines())
     assert len(text) < 1000
+
+
+def test_field_names_and_plain_words_in_salesforces_text_are_kept():
+    # Only what identifies the org is removed. "Account.Name" has a dot but is not an address.
+    reply = FakeResponse(400, [{"errorCode": "STRING_TOO_LONG", "message": "Account.Name: data value too large (max length=255)"}])
+    with pytest.raises(SalesforceError) as caught:
+        read_account_fields(SESSION, http=FakeSalesforce(reply))
+    assert "STRING_TOO_LONG: Account.Name: data value too large (max length=255)" in str(caught.value)
