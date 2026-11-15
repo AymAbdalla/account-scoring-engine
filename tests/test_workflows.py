@@ -84,6 +84,10 @@ def find_workflow_problems(workflow):
     return problems
 
 
+def find_credential_problems(workflow, salesforce_commands=()):
+    return []  # stub: lets the tests reach their assertions
+
+
 # --- The real files ----------------------------------------------------------
 
 def test_tests_workflow_exists():
@@ -100,8 +104,7 @@ def test_tests_workflow_runs_on_pull_requests_and_pushes_to_main_only():
 
 
 def test_tests_workflow_runs_pytest_and_is_given_no_secret():
-    text = (WORKFLOW_FOLDER / "tests.yml").read_text()
-    assert "secrets." not in text
+    assert find_credential_problems(read_workflow("tests.yml")) == []
     commands = [step.get("run", "").strip() for step in steps_of(read_workflow("tests.yml"))]
     assert commands[-1] == "python -m pytest"
 
@@ -212,6 +215,7 @@ def test_job_that_runs_another_workflow_is_a_problem():
 SECRET_NAMES = ["SF_CLIENT_ID", "SF_CLIENT_SECRET", "SF_INSTANCE_URL"]
 CHECK_COMMAND = "python check_salesforce.py"
 WRITE_COMMAND = 'python write_back.py --accounts "$ACCOUNTS_FILE"'
+SALESFORCE_COMMANDS = (CHECK_COMMAND, WRITE_COMMAND)
 # Which accounts file a run uses. A scheduled run has no tick box, so the
 # tick box counts as "no" and the real sample data is used.
 ACCOUNTS_FILE_CHOICE = (
@@ -221,10 +225,6 @@ ACCOUNTS_FILE_CHOICE = (
 
 def score_workflow():
     return read_workflow("score-accounts.yml")
-
-
-def secrets_named_in(value):
-    return sorted(set(re.findall(r"secrets\.(\w+)", str(value))))
 
 
 def test_score_workflow_exists():
@@ -251,14 +251,82 @@ def test_score_workflow_checks_the_connection_and_then_writes_with_the_same_scri
 
 def test_secrets_are_handed_only_to_the_two_salesforce_steps():
     workflow = score_workflow()
+    assert find_credential_problems(workflow, SALESFORCE_COMMANDS) == []
+    # The two Salesforce steps really are given all three, under their own names.
     for step in steps_of(workflow):
-        expected = SECRET_NAMES if step.get("run", "").strip() in (CHECK_COMMAND, WRITE_COMMAND) else []
-        assert secrets_named_in(step) == expected
-    # Nothing outside the steps names a secret either.
-    text = (WORKFLOW_FOLDER / "score-accounts.yml").read_text()
-    assert len(re.findall(r"secrets\.", text)) == 2 * len(SECRET_NAMES)
+        if step.get("run", "").strip() in SALESFORCE_COMMANDS:
+            for name in SECRET_NAMES:
+                assert step["env"][name] == "${{ secrets." + name + " }}"
     assert "env" not in workflow
     assert all("env" not in job for job in workflow["jobs"].values())
+
+
+# --- Credentials in the wrong place: every way of writing one is caught ------
+# GitHub accepts several spellings for the same secret, and ignores upper and
+# lower case. Each spelling is put where it does not belong, in both workflows.
+
+WAYS_TO_NAME_A_SECRET = [
+    "${{ secrets.SF_CLIENT_SECRET }}",
+    "${{ secrets['SF_CLIENT_SECRET'] }}",
+    '${{ secrets["SF_CLIENT_SECRET"] }}',
+    "${{ secrets [ 'SF_CLIENT_SECRET' ] }}",
+    "${{ SECRETS.SF_CLIENT_SECRET }}",
+    "${{ toJSON(secrets) }}",
+    "${{ format('{0}', secrets.SF_CLIENT_SECRET) }}",
+]
+
+
+def install_step(workflow):
+    return [step for step in steps_of(workflow) if step.get("run", "").strip() == INSTALL_COMMAND][0]
+
+
+def first_job(workflow):
+    return list(workflow["jobs"].values())[0]
+
+
+WRONG_PLACES = {
+    "the install step's env": lambda w, secret: install_step(w).update(env={"EXPOSED": secret}),
+    "the install step's command": lambda w, secret: install_step(w).update(run=INSTALL_COMMAND + " # " + secret),
+    "the checkout step's settings": lambda w, secret: steps_of(w)[0]["with"].update(token=secret),
+    "a new step": lambda w, secret: first_job(w)["steps"].append({"run": "echo hello", "env": {"EXPOSED": secret}}),
+    "the whole job": lambda w, secret: first_job(w).update(env={"EXPOSED": secret}),
+    "the whole workflow": lambda w, secret: w.update(env={"EXPOSED": secret}),
+}
+
+
+@pytest.mark.parametrize("secret", WAYS_TO_NAME_A_SECRET)
+@pytest.mark.parametrize("place", sorted(WRONG_PLACES))
+@pytest.mark.parametrize("name, commands", [("tests.yml", ()), ("score-accounts.yml", "salesforce")])
+def test_credential_in_the_wrong_place_is_a_problem_however_it_is_written(name, commands, place, secret):
+    workflow = read_workflow(name)
+    WRONG_PLACES[place](workflow, secret)
+    assert find_credential_problems(workflow, SALESFORCE_COMMANDS if commands else ()) != []
+
+
+def test_tests_workflow_may_not_be_given_credentials_even_on_a_salesforce_step():
+    workflow = read_workflow("tests.yml")
+    first_job(workflow)["steps"].append({
+        "run": CHECK_COMMAND,
+        "env": {name: "${{ secrets." + name + " }}" for name in SECRET_NAMES},
+    })
+    assert find_credential_problems(workflow) != []
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda env: env.update(SF_CLIENT_SECRET="${{ secrets['SF_CLIENT_SECRET'] }}"),  # another spelling
+        lambda env: env.update(SF_CLIENT_SECRET="${{ secrets.SF_CLIENT_ID }}"),          # the wrong secret
+        lambda env: env.update(OTHER="${{ secrets.SOMETHING_ELSE }}"),                   # a secret nobody agreed
+        lambda env: env.update(SF_CLIENT_SECRET="x ${{ secrets.SF_CLIENT_SECRET }}"),    # mixed into other text
+        lambda env: env.pop("SF_CLIENT_ID"),                                             # one of the three missing
+    ],
+)
+def test_salesforce_step_must_be_given_exactly_the_three_secrets_in_the_one_agreed_form(change):
+    workflow = score_workflow()
+    write_step = [step for step in steps_of(workflow) if step.get("run", "").strip() == WRITE_COMMAND][0]
+    change(write_step["env"])
+    assert find_credential_problems(workflow, SALESFORCE_COMMANDS) != []
 
 
 def test_tick_box_only_chooses_between_two_fixed_files_and_never_enters_a_command():
