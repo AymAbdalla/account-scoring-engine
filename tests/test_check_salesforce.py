@@ -98,7 +98,8 @@ def test_settings_echoed_back_after_login_are_still_hidden(capsys):
     refusal = FakeResponse(401, [{"errorCode": "INVALID_SESSION_ID", "message": echo}])
     with pytest.raises(SystemExit) as stopped:
         main(environ=ENVIRONMENT, http=FakeOrg(fields_refusal=refusal))
-    assert "INVALID_SESSION_ID: Refused for client" in str(stopped.value.code)
+    assert "INVALID_SESSION_ID" in str(stopped.value.code)
+    assert "Refused for client" not in str(stopped.value.code)
     assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
 
 

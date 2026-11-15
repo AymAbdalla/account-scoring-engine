@@ -241,8 +241,9 @@ def test_record_rejected_by_salesforce_saves_nothing_and_names_the_account():
     org.reject["ACC-0002"] = "Tier: bad value for restricted picklist field: B"
     with pytest.raises(WriteBackFailed) as caught:
         run(org, [make_account(1), make_account(2), make_account(3)])
-    assert "ACC-0002" in str(caught.value)
-    assert "bad value for restricted picklist" in str(caught.value)
+    # The account, Salesforce's code and the field. Its wording is not repeated.
+    assert "ACC-0002: INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST (Tier__c)" in str(caught.value)
+    assert "bad value" not in str(caught.value)
     assert (caught.value.scored, caught.value.written, caught.value.failed) == (3, 0, 3)
     assert org.accounts == {}
 
@@ -317,12 +318,12 @@ def test_bad_record_late_in_the_second_batch_is_the_one_named():
     org.reject["ACC-0240"] = "Tier: bad value for restricted picklist field: B"
     with pytest.raises(WriteBackFailed) as caught:
         run(org, [make_account(number) for number in range(1, 251)])
-    assert "ACC-0240: Tier: bad value for restricted picklist field: B" in str(caught.value)
+    assert "ACC-0240: INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST (Tier__c)" in str(caught.value)
     assert "rolled back" not in str(caught.value).lower()
     assert org.accounts == {}
 
 
-def test_batch_refused_as_a_whole_shows_salesforces_own_reason():
+def test_batch_refused_as_a_whole_shows_salesforces_error_code():
     # The shape Salesforce uses when a whole batch is refused, for example for a missing field.
     org = FakeOrg()
     org.write_reply = FakeResponse(200, {"compositeResponse": [{
@@ -331,7 +332,8 @@ def test_batch_refused_as_a_whole_shows_salesforces_own_reason():
     }]})
     with pytest.raises(WriteBackFailed) as caught:
         run(org, [make_account(1), make_account(2)])
-    assert "INVALID_FIELD: No such column 'Foo__c' on sobject of type Account" in str(caught.value)
+    assert "Salesforce rejected the write and saved nothing. INVALID_FIELD" in str(caught.value)
+    assert "Foo__c" not in str(caught.value)  # Salesforce's wording is not repeated
     assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, 0, 2)
 
 
@@ -704,7 +706,8 @@ def test_program_hides_settings_that_salesforce_echoes_back_after_login(tmp_path
     path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
     with pytest.raises(SystemExit) as stopped:
         main(path, environ=ENVIRONMENT, http=org)
-    assert "ACC-0002: Refused for client" in str(stopped.value.code)
+    assert "ACC-0002: INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST (Tier__c)" in str(stopped.value.code)
+    assert "Refused for client" not in str(stopped.value.code)
     assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
 
 
@@ -970,7 +973,7 @@ def test_program_hides_a_users_plain_name_that_salesforce_repeats_in_a_refusal(t
     with pytest.raises(SystemExit) as stopped:
         main(path, environ=ENVIRONMENT, http=org)
     shown = str(stopped.value.code) + capsys.readouterr().out
-    assert "ACC-0002: Owner cannot be changed; ask <user>" in shown
+    assert "ACC-0002: INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST (Tier__c)" in shown
     assert "Private" not in shown
     assert_identifies_nothing(shown)
 
@@ -983,7 +986,7 @@ def test_program_hides_a_users_plain_name_when_the_count_after_the_write_is_refu
     with pytest.raises(SystemExit) as stopped:
         main(path, environ=ENVIRONMENT, http=org)
     shown = str(stopped.value.code) + capsys.readouterr().out
-    assert "UNKNOWN_EXCEPTION: Row locked by <user>" in shown
+    assert "(HTTP 500): UNKNOWN_EXCEPTION." in shown
     assert "Private" not in shown
 
 

@@ -9,7 +9,11 @@ request. A fresh token is fetched on every run and never saved.
 The id, the secret and the token are never printed. Neither is anything that
 identifies the org: its address, a Salesforce id or a user name. A run's output
 ends up in a GitHub log, which anyone can read once the repository is public,
-so every message built from a Salesforce reply passes through `clean` first.
+so a message built from a Salesforce reply shows only Salesforce's error code,
+never its wording. The wording is free text and can hold a person's name, and
+no pattern can tell a name from any other words. The code, the account's
+Sample Id and the field name say what to fix. Whatever is shown still passes
+through `clean` first.
 
 Every function here that talks to the network takes `http` as an argument. In
 normal use that is the `requests` library; in the tests it is a stand-in that
@@ -19,7 +23,7 @@ import re
 
 import requests
 
-from salesforce.records import is_utc_time
+from salesforce.records import is_utc_time, load_field_limits
 
 API_VERSION = "v68.0"
 TIMEOUT_SECONDS = 30  # give up on a request that gets no answer in this time
@@ -32,19 +36,18 @@ MAX_RECORDS_PER_REQUEST = MAX_RECORDS_PER_BATCH * MAX_BATCHES_PER_REQUEST  # 1,0
 ROLLED_BACK = "ALL_OR_NONE_OPERATION_ROLLED_BACK"  # on a record: another record was bad
 HALTED = "PROCESSING_HALTED"  # on a batch: another batch was bad
 SETTING_NAMES = ["SF_INSTANCE_URL", "SF_CLIENT_ID", "SF_CLIENT_SECRET"]
-MAX_MESSAGE_LENGTH = 300  # longest piece of Salesforce's own text that is repeated
+MAX_MESSAGE_LENGTH = 300  # longest piece of text `clean` lets through
+# What one of Salesforce's error codes looks like: INVALID_SESSION_ID or
+# invalid_grant. All capitals or all small letters, with digits and
+# underscores, and no spaces. Anything else is not repeated: it could be a
+# name ("Dana", "Dana Lee") or an id.
+ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,79}|[a-z][a-z0-9_]{0,79}")
 REASONS_SHOWN = 3
 
 # The settings the engine logged in with. After the login they are no longer
 # passed from function to function, but a later reply from Salesforce could
 # still repeat one of them, so `clean` hides these values in every message.
 SETTINGS_TO_HIDE = set()
-
-# The display names of the Salesforce users the engine has read (see
-# find_active_users). A plain name such as "Dana Lee" is not shaped like an
-# email address or an id, so no pattern below would catch it. `clean` hides
-# these exact names instead, in every message from then on.
-USER_NAMES_TO_HIDE = set()
 
 # What `clean` removes from Salesforce's text, in this order.
 USER_NAME = re.compile(r"\S+@\S+")                                   # looks like an email address
@@ -73,9 +76,14 @@ class NoAnswer(SalesforceError):
 def clean(text, holding=None):
     """Make a piece of Salesforce's text safe to print in a public log.
 
-    Removes the values the engine is holding (the settings or the session)
-    and the names of the Salesforce users it has read, then anything shaped
-    like a login name, a web address, a token or a Salesforce id. Puts the text on one line, so it cannot start a line with
+    Removes the values the engine is holding (the settings or the session),
+    then anything shaped like a login name, a web address, a token or a
+    Salesforce id.
+
+    This cannot catch a person's plain name, which has no shape. That is why
+    Salesforce's free-text messages are never passed through here and shown:
+    see `reason_given`. `clean` is the second line of defence, applied to the
+    error codes that ARE shown. Puts the text on one line, so it cannot start a line with
     "::" (GitHub reads that as a command), and cuts it to a fixed length.
     """
     text = str(text)
@@ -84,9 +92,6 @@ def clean(text, holding=None):
     held += [value.split("://", 1)[1] for value in held if "://" in value]  # the address without https
     for value in sorted(held, key=len, reverse=True):
         text = text.replace(value, "<hidden>")
-    # Longest name first, so "Dana Lee Smith" is not left as "<user> Smith".
-    for name in sorted(USER_NAMES_TO_HIDE, key=len, reverse=True):
-        text = text.replace(name, "<user>")
     text = USER_NAME.sub("<user>", text)
     text = WEB_ADDRESS.sub("<address>", text)
     text = HOST_NAME.sub("<address>", text)
@@ -98,23 +103,41 @@ def clean(text, holding=None):
     return text
 
 
+def safe_code(code, holding=None):
+    """Return one of Salesforce's error codes if it is safe to show, or None."""
+    if not isinstance(code, str) or not ERROR_CODE.fullmatch(code) or SALESFORCE_ID.fullmatch(code):
+        return None
+    cleaned = clean(code, holding)
+    return cleaned if cleaned == code else None
+
+
 def reason_given(answer, holding=None):
-    """Pick Salesforce's error codes and messages out of a refusal, cleaned.
+    """Pick Salesforce's error codes out of a refusal. Its wording is never repeated.
 
     Salesforce refuses with a list of {errorCode, message}, or at login with
-    {error, error_description}. The rest of the reply is never repeated.
+    {error, error_description}. Only the code is shown: the message is free
+    text and could hold a person's name.
     """
     reasons = []
     for item in answer if isinstance(answer, list) else [answer]:
         if not isinstance(item, dict):
             continue
-        code = item.get("errorCode", item.get("error"))
-        message = item.get("message", item.get("error_description"))
-        if isinstance(code, str) and code:
-            reasons.append(clean("{}: {}".format(code, message) if isinstance(message, str) else code, holding))
+        code = safe_code(item.get("errorCode", item.get("error")), holding)
+        if code and code not in reasons:
+            reasons.append(code)
     if not reasons:
         return "Salesforce gave no reason the engine could read"
     return "; ".join(reasons[:REASONS_SHOWN])
+
+
+def field_names(names):
+    """The fields Salesforce blames for an error, keeping only the engine's own.
+
+    Returns text like " (Tier__c)", or "" when there is none to show.
+    """
+    known = set(load_field_limits()) | {"Name", "OwnerId"}
+    shown = [name for name in names if isinstance(name, str) and name in known] if isinstance(names, list) else []
+    return " ({})".format(", ".join(shown)) if shown else ""
 
 
 def read_settings(environ):
@@ -286,9 +309,7 @@ def find_active_users(session, http=requests):
     to more than one user, so each name holds a list of ids.
 
     The ids go into the records the engine writes, so only text shaped like a
-    Salesforce id is let through. Neither the names nor the ids are printed:
-    each name is handed to `clean` the moment it is read, so that a later
-    reply from Salesforce that repeats it cannot put it in a message.
+    Salesforce id is let through. Neither the names nor the ids are printed.
     """
     what = "the active users"
     users = {}
@@ -296,8 +317,6 @@ def find_active_users(session, http=requests):
         user_id, name = record.get("Id"), record.get("Name")
         if not isinstance(name, str) or not isinstance(user_id, str) or not SALESFORCE_ID.fullmatch(user_id):
             raise SalesforceError("Salesforce's list of {} was not in the expected shape".format(what))
-        if name.strip():
-            USER_NAMES_TO_HIDE.add(name)
         users.setdefault(name, []).append(user_id)
     return users
 
@@ -393,8 +412,10 @@ def write_records(session, records, http=requests):
             anything_failed = True
             for item in results if isinstance(results, list) else []:
                 # "Processing halted" only means some OTHER batch was bad. Keep the real causes.
-                if isinstance(item, dict) and item.get("errorCode") and item["errorCode"] != HALTED:
-                    reasons.append(clean("{}: {}".format(item["errorCode"], item.get("message")), session))
+                if isinstance(item, dict) and item.get("errorCode") != HALTED:
+                    code = safe_code(item.get("errorCode"), session)
+                    if code:
+                        reasons.append(code)
             continue
         for record, result in zip(batch, results):
             # Only a plain yes counts. Text such as "false", or a missing value, does not.
@@ -405,7 +426,9 @@ def write_records(session, records, http=requests):
             for error in errors if isinstance(errors, list) else []:
                 # "Rolled back" only means some OTHER record was bad. Keep the real causes.
                 if isinstance(error, dict) and error.get("statusCode") != ROLLED_BACK:
-                    reasons.append("{}: {}".format(record["Sample_Id__c"], clean(error.get("message"), session)))
+                    # The account, Salesforce's code and the field. Never its wording.
+                    code = safe_code(error.get("statusCode"), session) or "a reason the engine does not repeat"
+                    reasons.append("{}: {}{}".format(record["Sample_Id__c"], code, field_names(error.get("fields"))))
     if anything_failed:
         detail = "; ".join(reasons[:5]) if reasons else "Salesforce gave no reason"
         raise SalesforceError("Salesforce rejected the write and saved nothing. {}".format(detail))
