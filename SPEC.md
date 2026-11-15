@@ -10,6 +10,7 @@ Rank a BDR team's accounts on transparent rules and put the result where reps al
 - Segment assignment by employee count, five scoring rules, tiers and top three reasons.
 - Write-back of results to Salesforce Account in a free Developer org.
 - A scheduled run plus a manual Run button through GitHub Actions.
+- Runs on Python 3.13, named in `.python-version`.
 - One dashboard by segment, BDR, region and tier.
 
 ## Not in v0.1 (see the README roadmap)
@@ -130,17 +131,17 @@ Because Segment and Region are engine fields, a change made to them by hand in S
 
 ## Schedule
 
-Weekdays at 7:00 AM Eastern, plus a manual Run button (GitHub Actions `workflow_dispatch`). Both run the same script.
+Weekdays at 7:00 AM Eastern, plus a manual Run button (GitHub Actions `workflow_dispatch`). Both run the same script. The start can be a few minutes late, because GitHub queues scheduled runs. The time zone is set in the workflow, so daylight saving needs no change.
 
 ## Secrets
 
-Salesforce credentials live in GitHub Actions secrets and a local `.env` file that git ignores. They never go in code, commits or logs.
+Salesforce credentials live in GitHub Actions secrets and a local `.env` file that git ignores. They never go in code, commits or logs. On GitHub they are handed only to the steps that talk to Salesforce. Messages built from Salesforce replies are cleaned of addresses, ids and user names before they are printed, and whole replies are not printed.
 
 ## Done when (v0.1 acceptance)
 
 - [ ] `python run_local.py` prints tier counts for each segment that add up to 300, and the top 3 accounts in each segment with BDR, region and up to three reasons each. It also prints the territory check: 282 in territory, 15 outside and 3 not checked, with each flagged account and its note.
 - [ ] `pytest` passes, including the segment band edges (199, 200, 699, 700, 999, 1,000, 5,000, 5,001).
 - [ ] Two runs in a row leave exactly 300 scored accounts in Salesforce, with no duplicates.
-- [ ] A forced failure turns the GitHub run red and leaves the existing scores unchanged.
+- [ ] A forced failure (the Run button's "Force a failure" box, which feeds the engine a file with a duplicate id) turns the GitHub run red and leaves the existing scores unchanged.
 - [ ] The dashboard shows accounts by segment, BDR, region and tier, with the last scored time.
 - [ ] Demo video recorded and linked in the README and the changelog.

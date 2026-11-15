@@ -254,3 +254,12 @@ flowchart TD
 Approving this plan authorizes: creating a branch from `main` for each of the three pull requests; writing the files named in the slices; rebuilding `.venv` on Python 3.13 and downloading the pinned libraries into it; committing each finished slice and its build record on those branches; read-only queries against the `scoring-dev` org; saving run logs and query results in the outputs and scratch folders outside the repository; the first four SPEC.md changes listed above; and my recommendation on each open decision you do not change.
 
 It does not authorize: pushing, opening a pull request, merging, setting or changing GitHub secrets or settings, pressing Run, changing anything in the Salesforce org or its setup, making the repo public, tagging a release, the dashboard or the demo video. Each of those is asked for when its moment comes. The secrets and the GitHub and Salesforce settings are changed by you.
+
+## Amendment: where the first scheduled run is proven (approved by the owner on 2026-11-15)
+
+The slice table gave sr-6 two acceptance checks: local tests on the schedule line, and the first scheduled run seen green on GitHub. The second can only happen after pull request 2 is merged, while the same table puts the independent check of sr-6 before that merge. An independent check found the contradiction. Where this section and the table above disagree, this section wins.
+
+- **sr-6 acceptance is the local part only:** a test reads the schedule line and its time zone, and the "only trigger" test from sr-4 allows exactly the schedule and the Run button. This is the gate for merging pull request 2.
+- **sr-8 acceptance carries the live proof, unchanged in substance:** on the first weekday after pull request 2 is merged, a run appears marked as started by the schedule, it is green, the org's Last Scored time is that run's, and the start time is written down next to 7:00. Only then do the README Status line and the changelog say the schedule runs.
+- Nothing is dropped. Until sr-8 passes, the README keeps saying the schedule has not yet been seen running, and the changelog does not list it.
+- If the first scheduled run fails or never starts, sr-8 stays open, the cause is fixed on a new branch, and the schedule can be switched off with `gh workflow disable score-accounts.yml` in the meantime.
