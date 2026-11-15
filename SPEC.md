@@ -11,7 +11,7 @@ Rank a BDR team's accounts on transparent rules and put the result where reps al
 - Write-back of results to Salesforce Account in a free Developer org.
 - A scheduled run plus a manual Run button through GitHub Actions.
 - Runs on Python 3.13, named in `.python-version`.
-- Two dashboards: one shared dashboard that shows each BDR only the accounts they own, and one for a manager showing the whole team by segment, BDR, region and tier.
+- Two dashboards: one shared dashboard that shows each BDR only the accounts they own, and one for a manager showing the whole team by segment, BDR, region and tier. The BDR dashboard is the Home page of an Account Scoring app.
 - Two of the 60 BDRs are real Salesforce users, so the BDR dashboard can be shown working. How they come to own their accounts is under Account ownership.
 
 ## Not in v0.1 (see the README roadmap)
@@ -146,7 +146,7 @@ Because Segment and Region are engine fields, a change made to them by hand in S
 
 When the engine first creates an account, it looks for an active Salesforce user whose name is the same as the account's BDR. If there is one, that user becomes the Account Owner. If there is none, the account is owned by the engine's integration user, as today. The engine never changes the owner of an account that already exists, the same way it never overwrites Name or BDR. No Salesforce username is kept in the repository; the match is on the person's name. Reason: the BDR dashboard shows each viewer the accounts they own, so the two real BDR users have to own theirs, and ownership in a real org is managed in Salesforce, not by a scoring job.
 
-Agreed: two BDRs are real users in the demo org. They come from different territories so their dashboards look different, and they carry generated sample names like the rest of the data. Cheaper Salesforce Platform licences are tried first; if a Platform user cannot open the BDR dashboard, the two full Salesforce licences are used.
+Agreed: two BDRs are real users in the demo org. They come from different territories so their dashboards look different, and they carry generated sample names like the rest of the data. Both are on the cheaper Salesforce Platform licence, which can open the BDR dashboard and the Account Scoring app (tested on 2026-11-15).
 
 ## Dashboards
 
@@ -154,7 +154,11 @@ A Salesforce dashboard shows numbers as of the last time someone pressed Refresh
 
 **The BDR dashboard ("my accounts").** One dashboard shared by every BDR. It loads its numbers as whoever is looking at it, and its reports are limited to the accounts the viewer owns, which is what makes each BDR see only their own. It has three tiles: my accounts by tier, as a chart with the total; my Tier A and B accounts, as a table sorted by score with name, tier, score and the date and time each was last scored; and my accounts outside my territory, as a table with the engine's note. Tier B is included because only about 4 in 100 accounts are Tier A, which would leave a typical BDR with one or none. Adding a BDR means adding a user; the dashboard does not change.
 
-**The manager dashboard.** The whole team: accounts by segment, by BDR, by region and by tier, with the last scored time. What the "by BDR" view shows is decided once the 1,800 accounts exist (open item 7).
+**The manager dashboard ("Team Account Scoring").** The whole team, in seven tiles: accounts scored; accounts outside their BDR's territory; accounts by tier; by segment and by region, each split by tier; Tier A and B accounts for each BDR, most first; and every Tier A account with its BDR, segment, region, score and the date and time it was last scored, which is where the dashboard shows the last scored time. "By BDR" counts Tier A and B accounts because every BDR holds the same number of accounts, so a plain count would say nothing.
+
+**Who can see them.** A viewer needs the `Scoring_Viewer` permission set. It lets them read the ten scoring fields and open the Account Scoring app, and nothing else. Both dashboards are open to everyone inside the org.
+
+**Where a BDR finds it.** The Account Scoring app opens on the BDR dashboard as its Home page. Salesforce returns a user to the app they used last, so a BDR picks the app once. No profile and no standard Salesforce app is changed.
 
 **What "only their accounts" means.** It controls what the BDR dashboard shows. It does not stop a BDR from opening another BDR's account elsewhere in Salesforce: account sharing in the org stays as it is.
 
@@ -174,8 +178,8 @@ Salesforce credentials live in GitHub Actions secrets and a local `.env` file th
 - [ ] One bad record among the 1,800 that the engine's own check catches leaves nothing written.
 - [ ] When Salesforce refuses the second of the two requests, proven in the Developer org: the run fails, it reports the first 1,000 accounts as written and the other 800 as not written, the first 1,000 stay saved, and running again leaves all 1,800 carrying one Last Scored time.
 - [ ] A forced failure (the Run button's "Force a failure" box, which feeds the engine a file with a duplicate id) turns the GitHub run red and leaves the existing scores unchanged.
-- [ ] The manager dashboard shows accounts by segment, BDR, region and tier, with the last scored time.
-- [ ] The BDR dashboard, opened as each of the two real BDR users, shows tier counts that add up to that user's 30 accounts, lists no account of another BDR, and differs between the two users. This check depends on open items 5 and 6.
+- [x] The manager dashboard shows accounts by segment, BDR, region and tier, with the last scored time.
+- [x] The BDR dashboard, opened as each of the two real BDR users, shows tier counts that add up to that user's 30 accounts, lists no account of another BDR, and differs between the two users. This check depends on open items 5 and 6.
 - [ ] Demo video recorded and linked in the README and the changelog. It says why the sample is 1,800 accounts, what the demo environment limits (storage and logins), and how the design scales beyond it.
 
 ## Decisions and sources
@@ -205,6 +209,9 @@ The rows below were decided by the owner in chat on 2026-11-15. Everything else 
 | The BDR dashboard has three tiles, and its account list covers Tier A and B, not Tier A alone | chat, 2026-11-15: "yes to all four"; this changes the earlier "my Tier A accounts" |
 | The engine stays at five batches in one request and counts after each request | chat, 2026-11-15: "yes to all four" |
 | Scoring accounts read from Salesforce goes on the roadmap in this order: BDR-owned accounts first, then unassigned (UAR) and all other accounts, then automatic assignment at Tier A or B, tightened to Tier A only if too many qualify | chat, 2026-11-15: "roadmap for the sequence" |
+| "By BDR" on the manager dashboard shows the Tier A and B accounts of each BDR, most first | chat, 2026-11-15: "go", approving the dashboards plan with its recommendation |
+| The BDR dashboard is the Home page of a new Account Scoring app; no profile and no standard app is changed | chat, 2026-11-15: "go with A" |
+| A viewer needs the read-only `Scoring_Viewer` permission set, and the admin user holds it too | chat, 2026-11-15: "go", approving the plan; and "yes, add Scoring_Viewer to my admin user" |
 
 ## Open items
 
@@ -215,7 +222,7 @@ Each is open until the owner decides. None is a rule yet.
 3. Settled on 2026-11-15: the ownership rule under "Account ownership" is agreed. See the Decisions table.
 4. **Replacing the 300 accounts now in the org.** The approach is settled: just before the first load of 1,800, a snapshot of the 300 is saved and they are deleted through the admin login (the engine's own user cannot delete). The deletion itself still needs the owner's yes at that moment.
 5. **What the engine's integration user needs.** Read from the org on 2026-11-15: it can see the Account Owner field, the field is settable on create, and it can read user names. No change to the `Scoring_Engine` permission set is expected. Proven only by the first real write; if Salesforce refuses, the owner decides.
-6. **Whether a Salesforce Platform licence can open the BDR dashboard.** Salesforce's guides do not settle it. Tested in the build with a real Platform user; the two full licences are the agreed fallback.
-7. **The manager dashboard's "by BDR" view.** The BDR dashboard's three tiles are settled (see Dashboards). The rest of the manager layout follows the draft in `docs/plans/dashboard.md`, which is rewritten in the dashboards plan. What "by BDR" shows is decided once the 1,800 accounts exist.
+6. Settled on 2026-11-15: a Salesforce Platform licence can open the BDR dashboard, tested with both real BDR users, who each saw their own 30 accounts. It can also open the Account Scoring app, seen as one of the two.
+7. Settled on 2026-11-15: "by BDR" shows the Tier A and B accounts of each of the 60 BDRs, most first. See Dashboards and the Decisions table.
 8. Settled on 2026-11-15: the note is true. A saved test from 2026-11-14 shows this org accepted six batches in one request, while Salesforce's REST guide says five is the most. The engine stays at the documented five, and the code comment is reworded to say both.
 9. Settled on 2026-11-15: the engine counts after each request. See write-back rule 5.

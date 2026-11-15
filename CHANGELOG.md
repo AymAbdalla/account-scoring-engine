@@ -10,7 +10,7 @@ Only list an item here once it's built and checked.
 
 ## [Unreleased]
 
-Work towards v0.1.0. Everything listed here is built, tested and checked. Still to come before v0.1.0 is released: a GitHub run at 1,800 accounts, the first scheduled run seen on GitHub, the two Salesforce dashboards and the demo video.
+Work towards v0.1.0. Everything listed here is built, tested and checked. Still to come before v0.1.0 is released: a GitHub run at 1,800 accounts, the first scheduled run seen on GitHub and the demo video.
 
 ### Added
 
@@ -36,6 +36,13 @@ Salesforce
 - Read back: the engine counts the accounts carrying the run's time before writing and after every request. A run succeeds only when Salesforce confirms each write and each count matches. Every failure ends with an error and prints the scored, written and failed counts. When Salesforce refuses the second request, the engine reports the first 1,000 as written and the other 800 as not written.
 - Account ownership: when the engine first creates an account, a Salesforce user with the same name as the account's BDR becomes its owner. The engine never changes the owner of an account that already exists. Two users sharing a BDR's name stop the run before anything is written.
 
+Dashboards
+- My Accounts: one dashboard shared by every BDR. It loads as whoever is looking and its reports are limited to accounts the viewer owns. Three tiles: my accounts by tier, my Tier A and B accounts sorted by score with the time each was last scored, and my accounts outside my territory with the engine's note.
+- Team Account Scoring, for a manager: accounts scored, accounts outside territory, accounts by tier, by segment and by region (each split by tier), Tier A and B accounts for each BDR, and every Tier A account with the time it was last scored.
+- Account Scoring app: four tabs, with My Accounts as its Home page.
+- `Scoring_Viewer` permission set: read the ten scoring fields and open the Account Scoring app. It cannot create, edit or delete anything.
+- Nine reports, the two dashboards, the Home page and the app are kept as files in `force-app/` and deployed with the fields. No file names a Salesforce user.
+
 GitHub Actions
 - Run button (`score-accounts` workflow): checks the connection to Salesforce, then runs the write-back. The three Salesforce secrets are handed only to those two steps.
 - Forced failure: a "Force a failure" box on the Run button feeds the engine a file with a duplicate id, through a new `--accounts` option on `write_back.py`. The engine's own check refuses to write and the run ends red.
@@ -43,8 +50,9 @@ GitHub Actions
 - Both workflows name their actions by exact commit id, give the job read-only access to the code, and install libraries from a lock file with checksums enforced.
 
 Tests
-- 389 automated tests. The Salesforce tests run against a stand-in that answers the way the real org does, and a safety net makes any test fail at once if it tries to reach the real network.
+- 414 automated tests. The Salesforce tests run against a stand-in that answers the way the real org does, and a safety net makes any test fail at once if it tries to reach the real network.
 - Tests that read the workflow files and fail if a safety rule is loosened: an action named by a tag, wider permissions, a risky trigger, an install without checksums, or a credential anywhere except the two agreed steps, however it is written.
+- Tests that read the dashboard files and fail if a promise is broken: My Accounts no longer loads as the viewer or shows other people's accounts, a report counts accounts that were never scored, a file names a person, the viewer permission set grants more than reading, a number or chart tile draws a report it cannot show, or the BDR tile cuts off part of the team.
 
 ### Changed
 
@@ -64,6 +72,11 @@ Tests
 - The two BDRs who are real Salesforce users each own exactly their 30 accounts. The engine's own user owns the other 1,740. The engine's permission set did not change.
 - When Salesforce refused the second request, the run failed and reported 1,000 accounts written and 800 not written. Exactly the first 1,000 in ranking order carried the new time and the other 800 kept the earlier one. Running again left all 1,800 with one time.
 - One duplicated id among the 1,800 ended the run before anything was sent, and all 1,800 accounts were byte-for-byte the same before and after.
+- Dashboards, logged in as each of the two real BDR users: My Accounts showed that user's own 30 accounts (tiers 8, 9 and 13 for one; 6, 10 and 14 for the other), their Tier B accounts highest score first, and their accounts outside territory with the engine's note. Every name, tier, score and note matched a direct query, and no account appeared for both.
+- A Salesforce Platform licence can open the BDR dashboard, and the Account Scoring app with that dashboard as its Home page. A BDR who has opened the app lands on it at the next login.
+- Every number on the team dashboard equals a direct count: tiers 87, 302, 621 and 790; every segment and tier; every region and tier, with 18 accounts that have no region; 90 outside territory; all 60 BDRs with their Tier A and B counts; and 87 Tier A accounts each carrying the Last Scored time held in the org.
+- Two faults that a successful deploy did not show, found by looking at the screen and then fixed: a number tile drawing a plain list report showed an error in its place, and the BDR tile showed 32 of 60 BDRs because the chart's limit counts every coloured part of a bar.
+- A check-only deploy of the whole `force-app/` folder passes against the Developer org. A brand-new org has not been tried.
 
 ### Proven on GitHub
 
