@@ -66,8 +66,9 @@ def test_accounts_outside_split_evenly_by_size_by_region_and_by_both():
     for result in score_sample():
         if result["territory_status"] != "Outside territory":
             continue
-        by_size = "employees is" in result["territory_note"]
-        by_region = "headquarters in" in result["territory_note"]
+        note = result["territory_note"].lower()  # the second sentence starts with a capital H
+        by_size = "employees is" in note
+        by_region = "headquarters in" in note
         cases[(by_size, by_region)] += 1
     assert cases == {(True, False): 30, (False, True): 30, (True, True): 30}
 

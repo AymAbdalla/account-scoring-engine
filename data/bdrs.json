@@ -3,239 +3,239 @@
     "segment": "SMB",
     "region": "North America"
   },
-  "Jacqueline Barnes": {
+  "Eric Moore": {
     "segment": "SMB",
     "region": "North America"
   },
-  "Lindsay Blair": {
+  "Bruce Chandler": {
     "segment": "SMB",
     "region": "North America"
   },
-  "Norman Chavez": {
+  "Pamela Newton": {
     "segment": "SMB",
     "region": "EMEA"
   },
-  "Kayla Brown": {
+  "James Williams": {
     "segment": "SMB",
     "region": "EMEA"
   },
-  "Julie Ryan": {
+  "John Gonzales": {
     "segment": "SMB",
     "region": "EMEA"
   },
-  "Caitlin Mcdonald": {
+  "Nicholas David": {
     "segment": "SMB",
     "region": "APAC"
   },
-  "Jennifer Stanton": {
+  "Joshua Mccann": {
     "segment": "SMB",
     "region": "APAC"
   },
-  "Natasha Decker": {
+  "Gregory Stone": {
     "segment": "SMB",
     "region": "APAC"
   },
-  "Tamara Hickman": {
+  "Louis Kennedy": {
     "segment": "SMB",
     "region": "LATAM"
   },
-  "Jeremy Whitehead": {
+  "Marissa Leach": {
     "segment": "SMB",
     "region": "LATAM"
   },
-  "Michelle Brown": {
+  "Amy Levine": {
     "segment": "SMB",
     "region": "LATAM"
   },
-  "Scott Callahan": {
+  "Carlos Decker": {
     "segment": "Mid-Market",
     "region": "North America"
   },
-  "Joseph Bowers": {
+  "Michael Sanders": {
     "segment": "Mid-Market",
     "region": "North America"
   },
-  "Brendan Woods": {
+  "Erik Watson": {
     "segment": "Mid-Market",
     "region": "North America"
   },
-  "Leslie Green": {
+  "Lisa Wilkerson": {
     "segment": "Mid-Market",
     "region": "EMEA"
   },
-  "Casey Sanchez": {
+  "Justin Atkins": {
     "segment": "Mid-Market",
     "region": "EMEA"
   },
-  "Joseph Jacobs": {
+  "Jennifer Ho": {
     "segment": "Mid-Market",
     "region": "EMEA"
   },
-  "Janice Hoffman": {
+  "Kelly Cruz": {
     "segment": "Mid-Market",
     "region": "APAC"
   },
-  "Evelyn Estrada": {
+  "James Alexander": {
     "segment": "Mid-Market",
     "region": "APAC"
   },
-  "Elizabeth Moss": {
+  "Ashley Rodriguez": {
     "segment": "Mid-Market",
     "region": "APAC"
   },
-  "James Murphy": {
-    "segment": "Mid-Market",
-    "region": "LATAM"
-  },
-  "Michael Hartman": {
+  "Julie Lane": {
     "segment": "Mid-Market",
     "region": "LATAM"
   },
-  "Stacy Mccall": {
+  "John Perez": {
     "segment": "Mid-Market",
     "region": "LATAM"
   },
-  "Christina Turner": {
+  "Carlos Hernandez": {
+    "segment": "Mid-Market",
+    "region": "LATAM"
+  },
+  "Joshua Riddle": {
     "segment": "Sub-Enterprise",
     "region": "North America"
   },
-  "Jimmy Collins": {
+  "Anthony Acosta": {
     "segment": "Sub-Enterprise",
     "region": "North America"
   },
-  "Adam Potter": {
+  "Paul Bush": {
     "segment": "Sub-Enterprise",
     "region": "North America"
   },
-  "Karina Ramos": {
+  "Kimberly Young": {
     "segment": "Sub-Enterprise",
     "region": "EMEA"
   },
-  "Jennifer Young": {
+  "Gabriel Sanders": {
     "segment": "Sub-Enterprise",
     "region": "EMEA"
   },
-  "Rebecca Silva": {
+  "Walter Perry": {
     "segment": "Sub-Enterprise",
     "region": "EMEA"
   },
-  "Todd Price": {
+  "Kendra Gonzalez": {
     "segment": "Sub-Enterprise",
     "region": "APAC"
   },
-  "Brent Gray": {
+  "Lisa Davis": {
     "segment": "Sub-Enterprise",
     "region": "APAC"
   },
-  "Susan Williams": {
+  "Samantha Richard": {
     "segment": "Sub-Enterprise",
     "region": "APAC"
   },
-  "Julie Wilson": {
+  "Robert Spencer": {
     "segment": "Sub-Enterprise",
     "region": "LATAM"
   },
-  "Melissa Burke": {
+  "Anna Garcia": {
     "segment": "Sub-Enterprise",
     "region": "LATAM"
   },
-  "Jasmine Graham": {
+  "Sherry Marquez": {
     "segment": "Sub-Enterprise",
     "region": "LATAM"
   },
-  "Cheryl Gray": {
+  "Cynthia Smith": {
     "segment": "Enterprise",
     "region": "North America"
   },
-  "Richard Peters": {
+  "Emily Meadows": {
     "segment": "Enterprise",
     "region": "North America"
   },
-  "Mark Warner": {
+  "Dawn Powell": {
     "segment": "Enterprise",
     "region": "North America"
   },
-  "Jeremy White": {
+  "Debra Mullen": {
     "segment": "Enterprise",
     "region": "EMEA"
   },
-  "Jack Williams": {
+  "Martin Ward": {
     "segment": "Enterprise",
     "region": "EMEA"
   },
-  "Jeremiah Mills": {
+  "Phillip Kelley": {
     "segment": "Enterprise",
     "region": "EMEA"
   },
-  "Aaron Hayes": {
+  "Donna Faulkner": {
     "segment": "Enterprise",
     "region": "APAC"
   },
-  "Douglas Brown": {
+  "Gabrielle Serrano": {
     "segment": "Enterprise",
     "region": "APAC"
   },
-  "Anthony Perez": {
+  "Diana Mitchell": {
     "segment": "Enterprise",
     "region": "APAC"
   },
-  "Theodore Ortiz": {
+  "Christian Sosa": {
     "segment": "Enterprise",
     "region": "LATAM"
   },
-  "Michelle Bryan": {
+  "Debra Thompson": {
     "segment": "Enterprise",
     "region": "LATAM"
   },
-  "Todd Johnson": {
+  "Amy Lopez": {
     "segment": "Enterprise",
     "region": "LATAM"
   },
-  "Thomas Bryant": {
+  "Thomas Carlson": {
     "segment": "Large Enterprise",
     "region": "North America"
   },
-  "Donna Grimes": {
+  "Susan Davis": {
     "segment": "Large Enterprise",
     "region": "North America"
   },
-  "Lisa Hughes": {
+  "Barbara Davis": {
     "segment": "Large Enterprise",
     "region": "North America"
   },
-  "Monica Booker": {
+  "Ann Marquez": {
     "segment": "Large Enterprise",
     "region": "EMEA"
   },
-  "Casey Welch": {
+  "Jeffrey Powers": {
     "segment": "Large Enterprise",
     "region": "EMEA"
   },
-  "John Jenkins": {
+  "Jay Keller": {
     "segment": "Large Enterprise",
     "region": "EMEA"
   },
-  "Eric Alexander": {
+  "Timothy Burton": {
     "segment": "Large Enterprise",
     "region": "APAC"
   },
-  "Kenneth Spence": {
+  "Scott Anderson": {
     "segment": "Large Enterprise",
     "region": "APAC"
   },
-  "Donna Massey": {
+  "Beverly Fischer": {
     "segment": "Large Enterprise",
     "region": "APAC"
   },
-  "Alyssa Mcintyre": {
+  "Kimberly Marshall": {
     "segment": "Large Enterprise",
     "region": "LATAM"
   },
-  "Linda Diaz": {
+  "Michael Richard": {
     "segment": "Large Enterprise",
     "region": "LATAM"
   },
-  "Mark Bishop": {
+  "Timothy Powell": {
     "segment": "Large Enterprise",
     "region": "LATAM"
   }

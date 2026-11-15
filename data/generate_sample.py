@@ -1,19 +1,20 @@
-"""Makes the sample data: 300 made-up accounts in data/accounts.json.
+"""Makes the sample data: 1,800 made-up accounts in data/accounts.json.
 
 60 BDRs, each working one segment in one region (5 segments x 4 regions x 3 BDRs;
 the segments and regions come from weights.yaml),
-with 5 accounts each. Every name comes from Faker, a fake-data library, so any
+with 30 accounts each. Every name comes from Faker, a fake-data library, so any
 match with a real company or person is a coincidence.
 
 Also writes data/bdrs.json, the roster: which segment and region each BDR covers.
 
 Each account gets a headquarters country from its BDR's region. Then, so the
 territory check has something to find:
-  - every 20th account (ACC-0020, ACC-0040, ... 15 in all) is moved outside its
+  - every 20th account (ACC-0020, ACC-0040, ... 90 in all) is moved outside its
     BDR's territory, taking turns between three cases: wrong size, wrong
-    region, both;
-  - ACC-0050, ACC-0150 and ACC-0250 get a country that is not in the country
-    table in weights.yaml.
+    region, both (30 of each). Every BDR ends up with one or two;
+  - every 100th account counting from number 50 (ACC-0050, ACC-0150, ...
+    ACC-1750, 18 in all) gets a country that is not in the country table in
+    weights.yaml.
 
 The seed below fixes the "random" choices, so this script writes exactly the
 same files every time it runs.
@@ -44,7 +45,7 @@ OUTPUT_PATH = PROJECT_FOLDER / "data" / "accounts.json"
 ROSTER_PATH = PROJECT_FOLDER / "data" / "bdrs.json"
 
 BDRS_PER_SEGMENT_AND_REGION = 3
-ACCOUNTS_PER_BDR = 5
+ACCOUNTS_PER_BDR = 30
 LARGEST_COMPANY = 50000  # the top segment has no upper limit, so the sample needs one
 
 INDUSTRIES = [
@@ -62,7 +63,8 @@ INDUSTRIES = [
 
 MOVE_EVERY = 20  # every 20th account is moved outside its BDR's territory
 MOVE_CASES = ["size", "region", "both"]  # the moved accounts take turns between these
-UNKNOWN_COUNTRY_ACCOUNTS = [50, 150, 250]  # these get a country the table does not know
+UNKNOWN_COUNTRY_EVERY = 100  # every 100th account gets a country the table does not know...
+UNKNOWN_COUNTRY_FIRST = 50   # ...counting from number 50: 50, 150, 250, ...
 UNKNOWN_COUNTRY = "Iceland"
 
 CHANCE_MANY_COUNTRIES = 0.50
@@ -143,7 +145,7 @@ def make_accounts():
                             # A country from one of the other regions.
                             other_region = extra.choice([name for name in regions if name != region])
                             hq_country = extra.choice(countries_by_region[other_region])
-                    if number in UNKNOWN_COUNTRY_ACCOUNTS:
+                    if number % UNKNOWN_COUNTRY_EVERY == UNKNOWN_COUNTRY_FIRST:
                         hq_country = UNKNOWN_COUNTRY
 
                     accounts.append(
