@@ -172,12 +172,12 @@ Salesforce credentials live in GitHub Actions secrets and a local `.env` file th
 
 ## Done when (v0.1 acceptance)
 
-- [ ] `python run_local.py` prints tier counts for each segment that add up to 1,800, and the top 3 accounts in each segment with BDR, region and up to three reasons each. It also prints the territory check, with each flagged account and its note: 1,692 in territory, 90 outside and 18 not checked. Those three numbers follow from the agreed pattern and are confirmed when the data is generated.
-- [ ] `pytest` passes, including the segment band edges (199, 200, 699, 700, 999, 1,000, 5,000, 5,001).
-- [ ] Two runs in a row leave exactly 1,800 scored accounts in Salesforce, with no duplicates.
-- [ ] One bad record among the 1,800 that the engine's own check catches leaves nothing written.
-- [ ] When Salesforce refuses the second of the two requests, proven in the Developer org: the run fails, it reports the first 1,000 accounts as written and the other 800 as not written, the first 1,000 stay saved, and running again leaves all 1,800 carrying one Last Scored time.
-- [ ] A forced failure (the Run button's "Force a failure" box, which feeds the engine a file with a duplicate id) turns the GitHub run red and leaves the existing scores unchanged.
+- [x] `python run_local.py` prints tier counts for each segment that add up to 1,800, and the top 3 accounts in each segment with BDR, region and up to three reasons each. It also prints the territory check, with each flagged account and its note: 1,692 in territory, 90 outside and 18 not checked. Those three numbers follow from the agreed pattern and are confirmed when the data is generated.
+- [x] `pytest` passes, including the segment band edges (199, 200, 699, 700, 999, 1,000, 5,000, 5,001).
+- [x] Two runs in a row leave exactly 1,800 scored accounts in Salesforce, with no duplicates.
+- [x] One bad record among the 1,800 that the engine's own check catches leaves nothing written.
+- [x] When Salesforce refuses the second of the two requests, proven in the Developer org: the run fails, it reports the first 1,000 accounts as written and the other 800 as not written, the first 1,000 stay saved, and running again leaves all 1,800 carrying one Last Scored time.
+- [x] A forced failure (the Run button's "Force a failure" box, which feeds the engine a file with a duplicate id) turns the GitHub run red and leaves the existing scores unchanged.
 - [x] The manager dashboard shows accounts by segment, BDR, region and tier, with the last scored time.
 - [x] The BDR dashboard, opened as each of the two real BDR users, shows tier counts that add up to that user's 30 accounts, lists no account of another BDR, and differs between the two users. This check depends on open items 5 and 6.
 - [ ] Demo video recorded and linked in the README and the changelog. It says why the sample is 1,800 accounts, what the demo environment limits (storage and logins), and how the design scales beyond it.
@@ -220,8 +220,8 @@ Each is open until the owner decides. None is a rule yet.
 1. Settled on 2026-11-15: every 20th account outside its territory (90) and every 100th from number 50 with an unknown country (18). See In scope.
 2. Settled on 2026-11-15: see write-back rule 4 and the Decisions table. One request holding nine batches is not allowed by Salesforce's REST guide.
 3. Settled on 2026-11-15: the ownership rule under "Account ownership" is agreed. See the Decisions table.
-4. **Replacing the 300 accounts now in the org.** The approach is settled: just before the first load of 1,800, a snapshot of the 300 is saved and they are deleted through the admin login (the engine's own user cannot delete). The deletion itself still needs the owner's yes at that moment.
-5. **What the engine's integration user needs.** Read from the org on 2026-11-15: it can see the Account Owner field, the field is settable on create, and it can read user names. No change to the `Scoring_Engine` permission set is expected. Proven only by the first real write; if Salesforce refuses, the owner decides.
+4. Settled on 2026-11-15: a snapshot of the 300 was saved and they were deleted through the admin login, with the owner's yes at that moment. The 1,800 were then loaded.
+5. Settled on 2026-11-15: the first real write set the Account Owner on 60 new accounts with no change to the `Scoring_Engine` permission set.
 6. Settled on 2026-11-15: a Salesforce Platform licence can open the BDR dashboard, tested with both real BDR users, who each saw their own 30 accounts. It can also open the Account Scoring app, seen as one of the two.
 7. Settled on 2026-11-15: "by BDR" shows the Tier A and B accounts of each of the 60 BDRs, most first. See Dashboards and the Decisions table.
 8. Settled on 2026-11-15: the note is true. A saved test from 2026-11-14 shows this org accepted six batches in one request, while Salesforce's REST guide says five is the most. The engine stays at the documented five, and the code comment is reworded to say both.

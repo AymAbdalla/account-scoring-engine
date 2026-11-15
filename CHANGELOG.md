@@ -10,7 +10,7 @@ Only list an item here once it's built and checked.
 
 ## [Unreleased]
 
-Work towards v0.1.0. Everything listed here is built, tested and checked. Still to come before v0.1.0 is released: a GitHub run at 1,800 accounts, the first scheduled run seen on GitHub and the demo video.
+Work towards v0.1.0. Everything listed here is built, tested and checked. Still to come before v0.1.0 is released: the first scheduled run seen on GitHub and the demo video.
 
 ### Added
 
@@ -84,3 +84,4 @@ Tests
 - A run with "Force a failure" ticked ended red with "nothing was sent", and the 300 accounts in the org were byte-for-byte the same before and after.
 - A second normal run left exactly 300 accounts, with no duplicates.
 - The three run logs hold no org address, Salesforce id, user name or token.
+- At 1,800 accounts, on `main`: a run started with the Run button ended green with `Scored 1800, written 1800, failed 0`. A run with "Force a failure" ticked, started a minute later, ended red with "nothing was sent", naming the duplicated id. Afterwards all 1,800 accounts in the org still carried the one Last Scored time from the green run. The two run logs hold no org address, Salesforce id or email address.

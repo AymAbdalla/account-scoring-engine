@@ -4,7 +4,7 @@
 
 ▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md)
 
-**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 accounts, including a forced failure; a GitHub run at 1,800 is still to come. The weekday schedule is in place but has not yet been seen running. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. The demo video is still to come before v0.1.0 is released.
+**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 and at 1,800 accounts, each including a forced failure. The weekday schedule is in place but has not yet been seen running. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. The demo video is still to come before v0.1.0 is released.
 
 ![The team dashboard: 1,800 accounts scored, 90 outside their BDR's territory, accounts by tier as columns, and stacked bars by segment and by region, each split by tier.](docs/dashboard-team.png)
 
