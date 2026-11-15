@@ -279,3 +279,13 @@ flowchart TD
 Approving this plan authorizes: creating the branch `dashboards` from `main` as it is on GitHub; writing the files named in the slices; dry-run deploys to the `scoring-dev` org; real deploys that create or update the `Scoring_Viewer` permission set, the two folders, the nine or ten reports and the two dashboards, and nothing else; assigning `Scoring_Viewer` to the two BDR users; in db-5, a dry run of the whole `force-app/` folder; read-only queries and report runs, which record "last run" on our own reports and change nothing else; retrieving our own reports and dashboards into a scratch folder outside the repository; committing each finished slice and its build record on the branch; and my recommendation on each open decision you do not change.
 
 It does not authorize: pushing, opening a pull request or merging; editing SPEC.md before you have seen the exact text; deleting anything in the org, including Salesforce's sample dashboards; changing the ten fields, `Scoring_Engine`, licences, login settings, time zone or sharing; changing accounts or their owners; anything on GitHub; tagging a release; or the demo video. Each is asked for at its moment. You look at the dashboards, log in as the BDR users and take the screenshots.
+
+## Answers after approval
+
+The plan above is left as it was approved.
+
+- **Open decisions 1 to 3:** the recommendations, by the owner's "go" on 2026-11-15.
+- **Open item 6, answered on 2026-11-15:** a Salesforce Platform licence can open the BDR dashboard. The owner logged in as each of the two Platform users and saw their own 30 accounts. The full-licence fallback is not needed.
+- **Order of work:** db-2 was built before the owner's look at db-1, so one browser session covered both. Its files did not depend on the licence answer.
+- **Logging in as a BDR user:** the Login link was missing, so the owner switched on "Administrators Can Log in as Any User" in Setup. That is an org setting, changed by the owner.
+- **A retrieve cannot write outside a project**, so retrieved copies go to a throwaway project in the scratch folder.
