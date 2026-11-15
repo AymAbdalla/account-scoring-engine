@@ -294,6 +294,8 @@ The plan above is left as it was approved.
 
 Status: approved by the owner on 2026-11-15 ("go with A"): option A, the new app only. Asked for by the owner in chat on 2026-11-15 ("both, add the landing page slice"), after seeing that a BDR who logs in lands on the Sales app's standard Home page and has to find the dashboard under Dashboards, All Folders, Account Scoring. Everything above this section stays as approved.
 
+- **After db-6 was built, 2026-11-15:** the owner asked for `Scoring_Viewer` on their own admin user too ("yes, add Scoring_Viewer to my admin user"), because without it the admin does not see the Account Scoring app in the App Launcher. Assigned through the admin login. The admin owns no accounts, so the app's Home page shows empty tiles for them.
+
 ### Goal
 
 A BDR opens the Account Scoring app and their own My Accounts dashboard is the Home page. No menus to walk through.
