@@ -289,3 +289,82 @@ The plan above is left as it was approved.
 - **Order of work:** db-2 was built before the owner's look at db-1, so one browser session covered both. Its files did not depend on the licence answer.
 - **Logging in as a BDR user:** the Login link was missing, so the owner switched on "Administrators Can Log in as Any User" in Setup. That is an org setting, changed by the owner.
 - **A retrieve cannot write outside a project**, so retrieved copies go to a throwaway project in the scratch folder.
+
+## Added slice db-6: My Accounts as the landing page
+
+Status: approved by the owner on 2026-11-15 ("go with A"): option A, the new app only. Asked for by the owner in chat on 2026-11-15 ("both, add the landing page slice"), after seeing that a BDR who logs in lands on the Sales app's standard Home page and has to find the dashboard under Dashboards, All Folders, Account Scoring. Everything above this section stays as approved.
+
+### Goal
+
+A BDR opens the Account Scoring app and their own My Accounts dashboard is the Home page. No menus to walk through.
+
+### Terms
+
+| Term | Meaning |
+| --- | --- |
+| App | In Salesforce, a named set of tabs, picked from the App Launcher (the grid of dots, top left). Sales is an app. |
+| Home page | The first tab of an app. Each app can have its own. |
+| Lightning page | A page layout kept as a file. A Home page is one kind. |
+| Profile | The base bundle of rights every user has. The two BDR users share the standard profile Standard Platform User. |
+
+### What was checked
+
+Read from the org on 2026-11-15: it has no custom Home page; the Sales app is Salesforce's own standard app; the two BDR users are on a standard profile, shared with any other Platform user.
+
+Researched by two agents, each checked by a skeptic (helper review, not an independent check; Salesforce's own reference pages would not load, so formats come from real files in public repositories):
+
+| Fact | Status | Where it is proven |
+| --- | --- | --- |
+| A Home page file can hold the standard Dashboard component, named by the dashboard's own name | confirmed in several public files | dry run |
+| An app file can say "my Home tab is this page" | confirmed in public files | dry run |
+| A permission set can make an app visible to a user | the format allows it; not tested | dry run, then the BDR login |
+| The Dashboard component on a Home page loads a viewer dashboard as the viewer | **not documented either way** | only the BDR login settles it |
+| A Platform licence can open a custom app and its Home page | **not documented either way** | only the BDR login settles it |
+| Salesforce returns a user to the app they used last; a profile's default app applies only to a first-ever login | from a Salesforce help article | the second login in the acceptance check |
+
+### Design choice (needs your decision)
+
+How a BDR comes to land there. Salesforce has no setting that forces a page on every login, so the honest choices are:
+
+| Option | What changes | What a BDR does | Cost |
+| --- | --- | --- | --- |
+| **A. A new app, Account Scoring (recommended)** | Three new files: the Home page, the app, and one line in `Scoring_Viewer` that makes the app visible. Nothing in the Sales app or in any profile is touched. | Picks Account Scoring from the App Launcher once. From then on Salesforce brings them back to it at every login. | One click, once, per BDR. |
+| B. Option A, plus Account Scoring as the profile's default app | Also a file that edits the standard profile Standard Platform User. | Nothing: a brand-new user lands there on first login. | It changes a profile every Platform user shares, the "one default app" behaviour is untested, and it does nothing for the two users who have already logged in. |
+| C. Replace the Home page inside the Sales app for that profile | A file for Salesforce's own Sales app. | Nothing. | Deploying a partial file for a standard app may wipe its tabs and settings. Not recommended. |
+| D. Make it the Home page for the whole org | A click in Setup, not a file. | Nothing. | Every user gets it, including you, and you own no accounts, so yours would be empty. |
+
+Option A is proposed. B can be added later, once A is seen working, as its own decision.
+
+### The slice
+
+| # | Slice | Files and org changes | Change | Acceptance check | Blocked by |
+| --- | --- | --- | --- | --- | --- |
+| db-6 | Account Scoring app with My Accounts as its Home page | `force-app/main/default/flexipages/Account_Scoring_Home.flexipage-meta.xml`; `force-app/main/default/applications/Account_Scoring.app-meta.xml`; one block added to `Scoring_Viewer`; `tests/test_dashboard_files.py`. Org: 1 page and 1 app created, `Scoring_Viewer` updated. | The app has four tabs (Home, Accounts, Reports, Dashboards); its Home page shows My Accounts across the top. | File tests pass, each seen failing first: the Home page shows a dashboard kept in the repository; the app's Home is a page kept in the repository; `Scoring_Viewer` gains app visibility and nothing else; the repository holds no profile file and no file for a standard app. Dry run, then deploy. You log in as Danielle Johnson, pick Account Scoring from the App Launcher, and the Home page shows her 30 accounts (B 8, C 9, D 13); the same as Debra Mullen shows hers (B 6, C 10, D 14). You log out and in again as one of them and land on that Home page without choosing anything. As yourself, the Sales app's Home page is unchanged. | db-2 (done) |
+
+db-6 runs before db-5, so the README and the spec text describe it. It does not depend on db-4.
+
+If the BDR login shows the embedded dashboard cannot load as the viewer, or a Platform user cannot open the app, I stop and show you. The fallback is a plain tab in the Sales app that opens the dashboard, which is one click at every login instead of none.
+
+### Security
+
+- **New access given:** `Scoring_Viewer` also lets its holders open the Account Scoring app. An app is a set of tabs; it gives no access to any record or field the user did not already have. A test fails if the permission set gains anything else.
+- **What is not touched:** no profile, no standard app, no login setting, no sharing setting. A test fails if a profile file or a standard app file ever enters the repository.
+- **Who sees what:** the Home page shows My Accounts, which loads as the viewer. A viewer who owns no accounts sees empty tiles.
+
+### Risks
+
+- Risk: the Dashboard component does not load a viewer dashboard as the viewer for a Platform user. -> the BDR login in the acceptance check; the fallback above.
+- Risk: the Home page layout puts the dashboard in a narrow column. -> you see it at the login; the layout file is changed and redeployed.
+- Risk: "lands there at login" is read as forced. -> stated here and in the README: it is the app Salesforce last saw the user in.
+- Fog: whether the Platform licence limits how many custom apps a user may hold. This is one app. Revisit if a second is ever added.
+
+### Proposed change to SPEC.md
+
+One more item for the list shown to you in db-5: Dashboards gains a sentence saying the Account Scoring app opens on My Accounts, and how a BDR gets there.
+
+### Approval
+
+Approving this section authorizes: writing the files named in db-6; dry-run and real deploys of the Home page, the app and the updated `Scoring_Viewer`, and nothing else; committing the slice and its build record on the branch; and option A unless you choose another.
+
+It does not authorize: editing any profile or standard app, changing a setting in Setup, pushing, or the SPEC.md edit before you have seen its text.
+
