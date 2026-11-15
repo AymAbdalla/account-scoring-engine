@@ -510,3 +510,59 @@ def test_settings_echoed_back_after_login_are_still_hidden():
         read_account_fields(session, http=FakeSalesforce(reply))
     assert "INVALID_SESSION_ID: Refused for client" in str(caught.value)
     assert_identifies_nothing(str(caught.value))
+
+
+# --- Reading the active users, to set an owner on a new account -------------
+
+def test_active_users_are_read_page_by_page_and_grouped_by_name():
+    from salesforce.client import find_active_users
+    salesforce = ScriptedSalesforce([
+        FakeResponse(200, {"nextRecordsUrl": "/services/data/v68.0/query/01g-2000", "records": [
+            {"Id": "005000000000001AAA", "Name": "Sample Person"},
+            {"Id": "005000000000002AAA", "Name": "Other Person"}]}),
+        FakeResponse(200, {"done": True, "records": [{"Id": "005000000000003AAA", "Name": "Sample Person"}]}),
+    ])
+    assert find_active_users(SESSION, http=salesforce) == {
+        "Sample Person": ["005000000000001AAA", "005000000000003AAA"],
+        "Other Person": ["005000000000002AAA"],
+    }
+    assert salesforce.sent[0]["params"] == {"q": "SELECT Id, Name FROM User WHERE IsActive = true"}
+    assert salesforce.sent[1]["url"] == "https://example-dev-ed.develop.my.salesforce.com/services/data/v68.0/query/01g-2000"
+
+
+@pytest.mark.parametrize(
+    "records",
+    [
+        [{"Id": 5, "Name": "Sample Person"}],
+        [{"Id": "not an id", "Name": "Sample Person"}],
+        [{"Id": "005000000000001AAA' OR Name != null", "Name": "Sample Person"}],
+        [{"Id": "005000000000001AAA", "Name": None}],
+        [{"Name": "Sample Person"}],
+        ["005000000000001AAA"],
+    ],
+)
+def test_active_user_in_the_wrong_shape_is_an_error(records):
+    # The id goes into the records the engine writes, so only a real
+    # Salesforce id (15 or 18 letters and digits) is let through.
+    from salesforce.client import find_active_users
+    with pytest.raises(SalesforceError, match="active users"):
+        find_active_users(SESSION, http=ScriptedSalesforce([FakeResponse(200, {"done": True, "records": records})]))
+
+
+def test_refused_read_of_the_active_users_shows_a_cleaned_reason():
+    from salesforce.client import find_active_users
+    refusal = FakeResponse(403, [{"errorCode": "INSUFFICIENT_ACCESS", "message": "No access for marker.user@example.com"}])
+    with pytest.raises(SalesforceError) as caught:
+        find_active_users(SESSION, http=ScriptedSalesforce([refusal]))
+    assert "would not list the active users" in str(caught.value)
+    assert "INSUFFICIENT_ACCESS" in str(caught.value)
+    assert "marker" not in str(caught.value)
+
+
+def test_owner_field_check_reports_a_field_that_is_hidden_or_cannot_be_set_on_create():
+    from salesforce.client import find_owner_problems
+    assert find_owner_problems({"OwnerId": {"name": "OwnerId", "createable": True, "updateable": False}}) == []
+    hidden = find_owner_problems({})
+    assert len(hidden) == 1 and "cannot see" in hidden[0]
+    fixed = find_owner_problems({"OwnerId": {"name": "OwnerId", "createable": False, "updateable": True}})
+    assert len(fixed) == 1 and "cannot set" in fixed[0]

@@ -157,7 +157,7 @@ def find_problems(rows, limits, rules):
     return problems
 
 
-def build_record(row, exists):
+def build_record(row, exists, owner_id=None):
     """Shape one checked row into the record Salesforce expects.
 
     exists=True means the account is already in Salesforce.

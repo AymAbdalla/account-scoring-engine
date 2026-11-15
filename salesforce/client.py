@@ -381,3 +381,11 @@ def count_scored_at(session, scored_at, http=requests):
     if type(total) is not int or total < 0:
         raise SalesforceError("Salesforce would not count the accounts: its answer held no usable total")
     return total
+
+
+def find_active_users(session, http=requests):
+    return {}  # stub
+
+
+def find_owner_problems(fields):
+    return []  # stub

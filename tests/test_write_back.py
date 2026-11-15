@@ -67,6 +67,8 @@ class FakeOrg:
         self.login_reply = None     # a FakeResponse to give instead of a token
         self.query_reply = None     # a FakeResponse to give instead of the list of existing ids
         self.write_reply = None     # a FakeResponse to give instead of doing the write
+        self.users = []             # the active users: {"Id": ..., "Name": ...}
+        self.users_reply = None     # a FakeResponse to give instead of the list of active users
 
     def stored_id(self, sample_id):
         """Find an account ignoring upper and lower case, as the real Sample Id field does."""
@@ -90,6 +92,9 @@ class FakeOrg:
                     return scripted
                 total = scripted
             return FakeResponse(200, {"totalSize": total, "done": True, "records": []})
+        if query == "SELECT Id, Name FROM User WHERE IsActive = true":
+            self.requests.append(("users", query))
+            return self.users_reply or FakeResponse(200, {"totalSize": len(self.users), "done": True, "records": self.users})
         assert query == "SELECT Sample_Id__c FROM Account WHERE Sample_Id__c != null"
         self.requests.append(("query", query))
         if self.query_reply:
@@ -862,3 +867,93 @@ def test_one_bad_record_among_1800_caught_by_the_engines_own_check_sends_nothing
     assert "ACC-0007" in str(caught.value)
     assert "nothing was sent" in str(caught.value)
     assert org.requests == []
+
+
+# Account ownership (SPEC.md): when the engine first creates an account, an
+# active Salesforce user with the same name as the account's BDR becomes its
+# owner. An account that already exists is never sent an owner.
+
+OWNER_ID = "005MARK00000123AAA"  # holds "MARK" so a leak into the output is caught
+
+
+def test_new_account_whose_bdr_is_an_active_user_is_created_with_that_owner():
+    org = FakeOrg()
+    org.users = [{"Id": OWNER_ID, "Name": "Sample Person"}, {"Id": "005MARK00000999AAA", "Name": "Somebody Else"}]
+    run(org, [make_account(1), make_account(2, bdr="No Such User")])
+    assert org.accounts["ACC-0001"]["OwnerId"] == OWNER_ID
+    # No user has this BDR's name, so Salesforce gives the account to the engine's own user.
+    assert "OwnerId" not in org.accounts["ACC-0002"]
+
+
+def test_existing_account_is_never_sent_an_owner_even_when_a_matching_user_appears_later():
+    org = FakeOrg()
+    run(org, [make_account(1)], scored_at=FROZEN)
+    assert "OwnerId" not in org.accounts["ACC-0001"]
+    org.users = [{"Id": OWNER_ID, "Name": "Sample Person"}]
+    run(org, [make_account(1)], scored_at=LATER_RUN)
+    assert "OwnerId" not in org.accounts["ACC-0001"]
+    assert org.accounts["ACC-0001"]["Last_Scored__c"] == LATER_RUN
+
+
+def test_only_the_new_accounts_in_a_mixed_run_get_an_owner():
+    org = FakeOrg()
+    run(org, [make_account(1)], scored_at=FROZEN)
+    org.users = [{"Id": OWNER_ID, "Name": "Sample Person"}]
+    run(org, [make_account(1), make_account(2)], scored_at=LATER_RUN)
+    assert "OwnerId" not in org.accounts["ACC-0001"]
+    assert org.accounts["ACC-0002"]["OwnerId"] == OWNER_ID
+
+
+def test_two_active_users_with_one_bdrs_name_stop_the_run_before_any_write():
+    org = FakeOrg()
+    org.users = [{"Id": OWNER_ID, "Name": "Sample Person"}, {"Id": "005MARK00000999AAA", "Name": "Sample Person"}]
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert '"Sample Person"' in str(caught.value)
+    assert "Nothing was sent" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, 0, 2)
+    assert write_requests(org) == []
+    assert org.accounts == {}
+
+
+def test_users_are_read_after_the_count_and_only_when_an_account_is_new():
+    org = FakeOrg()
+    run(org, [make_account(1)], scored_at=FROZEN)
+    assert [kind for kind, _ in org.requests] == ["query", "count", "users", "write", "count"]
+    org.requests.clear()
+    run(org, [make_account(1)], scored_at=LATER_RUN)  # nothing is new, so no owner can be set
+    assert [kind for kind, _ in org.requests] == ["query", "count", "write", "count"]
+
+
+def test_user_names_that_cannot_be_read_send_no_write():
+    org = FakeOrg()
+    org.users_reply = FakeResponse(403, [{"errorCode": "INSUFFICIENT_ACCESS", "message": LEAK}])
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2)])
+    assert "would not list the active users" in str(caught.value)
+    assert "Nothing was sent" in str(caught.value)
+    assert (caught.value.scored, caught.value.written, caught.value.failed) == (2, 0, 2)
+    assert write_requests(org) == []
+    assert_identifies_nothing(str(caught.value))
+
+
+def test_program_sets_an_owner_without_printing_who_it_is(tmp_path, capsys):
+    org = FakeOrg()
+    org.users = [{"Id": OWNER_ID, "Name": "Sample Person"}, {"Id": "005MARK00000999AAA", "Name": "Marker Manager"}]
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    main(path, environ=ENVIRONMENT, http=org)
+    printed = capsys.readouterr().out
+    assert org.accounts["ACC-0001"]["OwnerId"] == OWNER_ID
+    assert "2 new account(s) get a Salesforce user as owner" in printed
+    assert_identifies_nothing(printed)
+
+
+def test_program_hides_an_owner_id_that_salesforce_repeats_in_a_refusal(tmp_path, capsys):
+    org = FakeOrg()
+    org.users = [{"Id": OWNER_ID, "Name": "Sample Person"}]
+    org.reject["ACC-0002"] = "Owner ID: id value of incorrect type: " + OWNER_ID
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(2)])
+    with pytest.raises(SystemExit) as stopped:
+        main(path, environ=ENVIRONMENT, http=org)
+    assert "ACC-0002" in str(stopped.value.code)
+    assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
