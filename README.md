@@ -151,6 +151,10 @@ Three limits worth knowing. The check compares against the BDR in the sample dat
 | Name, BDR | Salesforce (in this demo, loaded once from sample data) | never overwrites |
 | Account Owner | Salesforce | sets once, when it first creates an account and a Salesforce user has the BDR's name; never changes it afterwards |
 
+## Case study
+
+Why it was built this way, how it was checked and where its limits are: [docs/case-study.md](docs/case-study.md).
+
 ## Roadmap
 
 Each step ships as its own release with a changelog entry, and gets a new demo video when there's something worth showing. All of it runs on sample data.
