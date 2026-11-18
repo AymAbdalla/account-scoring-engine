@@ -4,7 +4,7 @@
 
 ▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md)
 
-**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 and at 1,800 accounts, each including a forced failure. The weekday schedule is in place but has not yet been seen running. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. The demo video is still to come before v0.1.0 is released.
+**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 and at 1,800 accounts, each including a forced failure. The weekday schedule has run by itself on GitHub, on November 16 and 17, each time writing all 1,800 accounts with none failed. GitHub started both runs hours after 7:00 AM. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. The demo video is still to come before v0.1.0 is released.
 
 ![The team dashboard: 1,800 accounts scored, 90 outside their BDR's territory, accounts by tier as columns, and stacked bars by segment and by region, each split by tier.](docs/dashboard-team.png)
 
@@ -14,7 +14,7 @@ _The team dashboard, for a manager: every scored account by tier, segment and re
 
 ![Architecture: GitHub Actions starts the Python scoring engine on a schedule or on demand. It reads sample accounts and signals plus weights.yaml, sorts each account into a segment, scores it, picks the top 3 reasons and upserts the results to Salesforce, where 60 BDRs see ranked lists.](docs/architecture.svg)
 
-GitHub starts the engine, so nothing in a run needs a person, a laptop or a chat window. A Run button starts it on demand, and a schedule is set to start it on weekdays at or shortly after 7:00 AM Eastern.
+GitHub starts the engine, so nothing in a run needs a person, a laptop or a chat window. A Run button starts it on demand, and a schedule starts it on weekdays from 7:00 AM Eastern.
 
 ## How it works
 
@@ -50,7 +50,7 @@ Two workflow files in `.github/workflows/` tell GitHub what to run:
 | Workflow | Starts | What it does |
 |---|---|---|
 | `tests` | on every pull request and every push to `main` | installs the libraries from the lock file and runs the tests. It is given no credentials |
-| `score-accounts` | on weekdays at or shortly after 7:00 AM Eastern, and from the Run button | checks the connection to Salesforce (reads only), then runs `python write_back.py` |
+| `score-accounts` | on weekdays from 7:00 AM Eastern, and from the Run button | checks the connection to Salesforce (reads only), then runs `python write_back.py` |
 
 To set it up in your own copy:
 
@@ -62,7 +62,7 @@ To set it up in your own copy:
 Things worth knowing:
 
 - **A red run means look.** Nothing retries by itself. A failure before the write changes nothing. The 1,800 accounts go as two requests, and each one is saved whole or not at all: if Salesforce refuses the first, nothing changes; if it refuses the second, the first 1,000 stay saved and the engine says how many accounts were written and how many were not. If a write is sent and Salesforce never answers, the engine says so. In every case running it again is safe.
-- **The schedule can start a few minutes late**, because GitHub queues scheduled runs. The Run button is the way to catch up.
+- **The schedule can start late**, because GitHub queues scheduled runs. The first two scheduled runs started about eight and nine hours after 7:00 AM. The Run button is the way to catch up.
 - **Only two steps get the credentials**: the connection check and the write. The step that installs libraries does not.
 - **Run logs are written to be safe to read in public.** The engine never prints the org's address, and a message built from a Salesforce reply shows only Salesforce's error code, the account's Sample Id and the field. Salesforce's own wording is never repeated, because it can hold a person's name.
 - **To switch the schedule off:** `gh workflow disable score-accounts.yml`. To switch it back on: `gh workflow enable score-accounts.yml`.
