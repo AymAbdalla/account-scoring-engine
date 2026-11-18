@@ -179,7 +179,7 @@ Salesforce credentials live in GitHub Actions secrets and a local `.env` file th
 
 - [x] `python run_local.py` prints tier counts for each segment that add up to 1,794, plus 6 accounts that need review, and the top 3 accounts in each segment with BDR, region and every reason each. It also prints the territory check, with each flagged account and its note: 1,686 in territory, 90 outside, 18 not checked and 6 needing review. Those numbers follow from the agreed pattern and are confirmed when the data is generated.
 - [x] After `force-app/` is deployed, a real run writes the six accounts that need review with no score or tier and ends `Scored 1794, needs review 6, written 1800, failed 0.` (November 18).
-- [ ] The team dashboard's Needs review table lists exactly those six accounts.
+- [x] The team dashboard's Needs review table lists exactly those six accounts (November 18).
 - [x] `pytest` passes, including the segment band edges (199, 200, 699, 700, 999, 1,000, 5,000, 5,001).
 - [x] Two runs in a row leave exactly 1,800 scored accounts in Salesforce, with no duplicates.
 - [x] One bad record among the 1,800 that the engine's own check catches leaves nothing written.
