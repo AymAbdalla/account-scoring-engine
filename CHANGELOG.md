@@ -10,7 +10,7 @@ Only list an item here once it's built and checked.
 
 ## [Unreleased]
 
-Work towards v0.1.0. Everything listed here is built, tested and checked. Still to come before v0.1.0 is released: the first scheduled run seen on GitHub and the demo video.
+Work towards v0.1.0. Everything listed here is built, tested and checked. Still to come before v0.1.0 is released: the demo video. The weekday schedule has now run by itself on GitHub twice, on November 16 and 17, writing all 1,800 accounts each time with none failed; GitHub started both runs hours after 7:00 AM.
 
 ### Added
 
