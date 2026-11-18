@@ -48,7 +48,8 @@ def test_account_matching_no_rule_scores_0_and_is_tier_d():
 
 
 def test_reasons_come_out_highest_points_first_and_ties_keep_file_order():
-    # All five rules match: the two 25-point rules, then the 20-point rule.
+    # All five rules match, so all five reasons show: the two 25-point rules,
+    # the 20-point rule, then the two 15-point rules in file order.
     everything = make_account(
         countries=5,
         industry="retail",
@@ -60,6 +61,8 @@ def test_reasons_come_out_highest_points_first_and_ties_keep_file_order():
         "Operates in 3 or more countries",
         "Hourly-workforce industry",
         "Hiring surge",
+        "New HR leader",
+        "Engaged in the last 14 days",
     ]
     # Only the timing rules match: 20 points, then the two 15-point rules.
     timing_only = make_account(hiring_surge=True, new_hr_leader=True, days_since_engaged=3)
@@ -68,6 +71,21 @@ def test_reasons_come_out_highest_points_first_and_ties_keep_file_order():
         "New HR leader",
         "Engaged in the last 14 days",
     ]
+
+
+def test_every_matched_rule_shows_so_the_reasons_add_up_to_the_score():
+    # 25 + 25 + 20 + 15 = 85. Before rules version 2 only the top three showed,
+    # and their points added up to 70.
+    account = make_account(countries=5, industry="retail", hiring_surge=True, new_hr_leader=True)
+    result = score_account(account, RULES)
+    assert result["score"] == 85
+    assert result["top_reasons"] == [
+        "Operates in 3 or more countries",
+        "Hourly-workforce industry",
+        "Hiring surge",
+        "New HR leader",
+    ]
+    assert result["rules_version"] == 2
 
 
 @pytest.mark.parametrize(

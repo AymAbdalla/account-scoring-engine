@@ -1,6 +1,6 @@
 # Needs review and all reasons plan
 
-Status: proposed, awaiting approval. Source of agreement: the owner's messages in chat on 2026-11-18: "why is the 4th reason hidden? can we fix that, why a company under 50 stops the whole run, it should just be skipped and ignored and identified and flaggged for human review", then "1, go" (flag in Salesforce, not in the run log only).
+Status: approved by the owner on 2026-11-18 ("yes, go with your recs"), including slice 5 (six demo accounts under 50). Source of agreement: the owner's messages in chat on 2026-11-18: "why is the 4th reason hidden? can we fix that, why a company under 50 stops the whole run, it should just be skipped and ignored and identified and flaggged for human review", then "1, go" (flag in Salesforce, not in the run log only).
 
 This plan changes two settled spec items: "top three reasons" (In scope and the output table) and "employees: 50 or more" (Sample data). Approving the plan approves those two spec changes; slice 5 writes them into SPEC.md.
 

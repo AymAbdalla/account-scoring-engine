@@ -5,7 +5,7 @@
 # Every score records the rules version that made it.
 # Editing the country table does not bump it: that changes the territory
 # flag, not the score.
-version: 1
+version: 2  # 2: every matched rule is listed, not only the top three
 
 # Territories: a BDR covers one segment in one region.
 # Company size decides the segment, and where the company has its
@@ -114,5 +114,6 @@ tiers:
     min_score: 0
 
 # How many reasons to show for each account, and what to show when no rule matched.
-max_reasons: 3
+# 5 is every rule, so the reasons shown always add up to the score.
+max_reasons: 5
 no_match_reason: No rules matched
