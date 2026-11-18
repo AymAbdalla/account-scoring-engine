@@ -4,7 +4,8 @@ Every number here comes from SPEC.md ("In scope for v0.1"), not from the
 generator: 60 BDRs with 30 accounts each, every 20th account outside its
 BDR's territory (90, in equal thirds by size, by region and by both), and
 every 100th account counting from number 50 with a country the table does
-not know (18).
+not know (18), and six accounts with fewer than 50 employees (ACC-0075, then
+every 300th) that fit no segment and are flagged for review.
 """
 import json
 from collections import Counter
@@ -48,9 +49,32 @@ def test_roster_has_3_bdrs_for_each_segment_in_each_region():
     assert set(bdrs_per_territory.values()) == {3}
 
 
-def test_territory_check_finds_1692_in_90_outside_and_18_not_checked():
+def test_territory_check_finds_1686_in_90_outside_18_not_checked_and_6_needing_review():
     statuses = Counter(result["territory_status"] for result in score_sample())
-    assert statuses == {"In territory": 1692, "Outside territory": 90, "Not checked": 18}
+    assert statuses == {"In territory": 1686, "Outside territory": 90, "Not checked": 18, "Needs review": 6}
+
+
+FLAGGED_IDS = ["ACC-0075", "ACC-0375", "ACC-0675", "ACC-0975", "ACC-1275", "ACC-1575"]
+
+
+def test_six_accounts_under_50_employees_are_flagged_not_scored():
+    flagged = [r for r in score_sample() if r["territory_status"] == "Needs review"]
+    assert sorted(r["id"] for r in flagged) == FLAGGED_IDS
+    employees = {account["id"]: account["employees"] for account in load_sample()}
+    for result in flagged:
+        assert isinstance(employees[result["id"]], int) and 0 < employees[result["id"]] < 50
+        assert result["score"] is None and result["tier"] is None and result["segment"] is None
+        assert result["territory_note"].endswith("is below the smallest segment, SMB (50 to 199).")
+
+
+def test_every_other_account_has_at_least_50_employees():
+    small = [a["id"] for a in load_sample() if a["id"] not in FLAGGED_IDS and not a["employees"] >= 50]
+    assert small == []
+
+
+def test_the_six_flagged_accounts_belong_to_six_different_bdrs():
+    bdr_by_id = {account["id"]: account["bdr"] for account in load_sample()}
+    assert len({bdr_by_id[account_id] for account_id in FLAGGED_IDS}) == 6
 
 
 def test_every_20th_account_is_the_one_outside_its_territory():

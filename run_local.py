@@ -139,4 +139,4 @@ if __name__ == "__main__":
         json.dump(results, output_file, indent=2)
         output_file.write("\n")
     print()
-    print("Saved {} scores to {} (rules version {})".format(len(results), OUTPUT_PATH.relative_to(PROJECT_FOLDER), rules["version"]))
+    print("Saved {} results to {} (rules version {})".format(len(results), OUTPUT_PATH.relative_to(PROJECT_FOLDER), rules["version"]))
