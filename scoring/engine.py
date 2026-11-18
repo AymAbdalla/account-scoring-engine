@@ -39,6 +39,33 @@ def find_segment(account, rules):
     )
 
 
+def segment_problem(account, rules):
+    """Return why the account fits no segment, as a note for a person, or None when it fits.
+
+    An account fits no segment when its employee count is missing, is not a
+    whole number, or is below the smallest segment. Such an account is not
+    scored; it is flagged for a person to review, and the run carries on.
+    A gap between two segments in weights.yaml is a setup mistake instead,
+    and find_segment still stops with an error for it.
+    """
+    size = account.get(rules["segment_field"])
+    if size is None:
+        return "Needs review: no employee count."
+    # In Python, True and False count as whole numbers, so rule them out by name.
+    if not isinstance(size, int) or isinstance(size, bool):
+        return "Needs review: the employee count is not a whole number."
+    smallest = min(rules["segments"], key=lambda segment: segment["min"])
+    if size < smallest["min"]:
+        if smallest["max"] is None:
+            band = "{:,} or more".format(smallest["min"])
+        else:
+            band = "{:,} to {:,}".format(smallest["min"], smallest["max"])
+        return "Needs review: {:,} employees is below the smallest segment, {} ({}).".format(
+            size, smallest["name"], band
+        )
+    return None
+
+
 def find_region(account, rules):
     """Return the region the account's headquarters country belongs to.
 
@@ -75,10 +102,25 @@ def find_tier(score, rules):
 
 
 def score_account(account, rules):
-    """Score one account. Returns a dictionary with the results."""
-    segment = find_segment(account, rules)
+    """Score one account. Returns a dictionary with the results.
 
+    An account that fits no segment (see segment_problem) is not scored: its
+    segment, score and tier are None and it has no reasons. check_territory
+    then flags it as Needs review.
+    """
     region = find_region(account, rules)
+    if segment_problem(account, rules) is not None:
+        unknown = [rules["region_field"]] if account.get(rules["region_field"]) is None else []
+        return {
+            "segment": None,
+            "region": region,
+            "score": None,
+            "tier": None,
+            "top_reasons": [],
+            "unknown": unknown,
+            "rules_version": rules["version"],
+        }
+    segment = find_segment(account, rules)
 
     matched = []  # the rules this account earned points for
     unknown = []  # fields that were empty, so they could not be used
@@ -148,7 +190,13 @@ def check_territory(account, result, roster, rules):
     def answer(status, note):
         return {"territory_status": statuses[status], "territory_note": note}
 
-    # First, the cases where the check cannot be done. We say so instead of guessing.
+    # An account that fits no segment has no territory to compare, and a
+    # person needs to look at it before anything else.
+    problem = segment_problem(account, rules)
+    if problem is not None:
+        return answer("needs_review", problem)
+
+    # Next, the cases where the check cannot be done. We say so instead of guessing.
     bdr = account.get(rules["bdr_field"])
     if bdr is None:
         return answer("not_checked", "Not checked: the account has no BDR.")

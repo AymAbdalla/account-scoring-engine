@@ -45,7 +45,7 @@ def test_field_files_give_the_allowed_values_and_lengths_from_the_spec():
     assert LIMITS.get("Region__c", {}).get("values") == ["North America", "EMEA", "APAC", "LATAM"]
     assert LIMITS.get("Sample_Id__c", {}).get("length") == 20
     assert LIMITS.get("Top_Reasons__c", {}).get("length") == 1000
-    assert LIMITS.get("Territory_Status__c", {}).get("values") == ["In territory", "Outside territory", "Not checked"]
+    assert LIMITS.get("Territory_Status__c", {}).get("values") == ["In territory", "Outside territory", "Not checked", "Needs review"]
     assert LIMITS.get("Territory_Note__c", {}).get("length") == 255
 
 
