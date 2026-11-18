@@ -2,7 +2,7 @@
 
 **Scores every account on rules you can read, then writes the score, tier and top three reasons into Salesforce on a schedule, so each BDR knows where to look first.**
 
-▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md)
+▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md) · [MIT License](LICENSE)
 
 **Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 and at 1,800 accounts, each including a forced failure. The weekday schedule has run by itself on GitHub, on November 16 and 17, each time writing all 1,800 accounts with none failed. GitHub started both runs hours after 7:00 AM. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. The demo video is still to come before v0.1.0 is released.
 
