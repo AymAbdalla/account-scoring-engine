@@ -1,5 +1,5 @@
 """Checks that the engine can log in to Salesforce and use its ten fields,
-and that it can set an owner on a new account and read the users' names.
+that the org holds every picklist value in force-app/, and that it can set an owner on a new account and read the users' names.
 
 Run this before the first write-back, and any time a login problem is suspected.
 It reads from Salesforce only; it changes nothing there. It never prints the
@@ -19,6 +19,7 @@ from salesforce.client import (
     find_active_users,
     find_field_problems,
     find_owner_problems,
+    find_picklist_problems,
     log_in,
     read_account_fields,
     read_settings,
@@ -55,6 +56,17 @@ def check(settings, http):
     if problems:
         raise SalesforceError("Field check failed:\n  " + "\n  ".join(problems))
     print("All {} fields are found and editable.".format(len(needed)))
+
+    # Every picklist value the engine may write must already be in the org.
+    # A value added in force-app/ (such as Needs review) reaches Salesforce
+    # only when force-app/ is deployed; until then the write-back would fail.
+    picklist_problems = find_picklist_problems(fields, load_field_limits())
+    if picklist_problems:
+        raise SalesforceError(
+            "Picklist check failed (deploy force-app/ to the org, then run this check again):\n  "
+            + "\n  ".join(picklist_problems)
+        )
+    print("Every picklist value in force-app/ is in Salesforce.")
 
     # The engine sets the owner once, when it first creates an account, to
     # the Salesforce user with the same name as the account's BDR. That needs

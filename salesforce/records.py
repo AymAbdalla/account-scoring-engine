@@ -6,7 +6,8 @@ Nothing in this file talks to Salesforce. It does three jobs:
    of each text field and the values of each picklist.
 2. Checks every scored account BEFORE anything is written: the tier, segment,
    region and territory status against the lists in weights.yaml, and the text
-   against the field lengths. One bad record means nothing gets written
+   against the field lengths. An account flagged Needs review must carry no
+   segment, score, tier or reasons, and a note that says why. One bad record means nothing gets written
    (write-back rule 4).
 3. Builds the record for each account. A new account gets every field, and
    an owner when a Salesforce user has its BDR's name. An account that already
@@ -106,6 +107,7 @@ def find_problems(rows, limits, rules):
     allowed_regions = rules["regions"]
     allowed_tiers = [tier["name"] for tier in rules["tiers"]]
     allowed_statuses = list(rules["territory_statuses"].values())
+    needs_review = rules["territory_statuses"].get("needs_review")
     problems = []
     seen_ids = set()
 
@@ -127,8 +129,6 @@ def find_problems(rows, limits, rules):
             problem("name", "is missing or too long")
         if not is_text(row.get("bdr"), limits["BDR__c"]["length"]):
             problem("bdr", "is missing or too long")
-        if row.get("segment") not in allowed_segments:
-            problem("segment", "is not one of the segments in weights.yaml")
         # No region is allowed: it means the headquarters country was unknown.
         if row.get("region") is not None and row.get("region") not in allowed_regions:
             problem("region", "is not one of the regions in weights.yaml")
@@ -138,19 +138,34 @@ def find_problems(rows, limits, rules):
         note = row.get("territory_note")
         if not isinstance(note, str) or len(note) > limits["Territory_Note__c"]["length"]:
             problem("territory_note", "is missing or too long")
-        if row.get("tier") not in allowed_tiers:
-            problem("tier", "is not one of the tiers in weights.yaml")
 
-        score = row.get("score")
-        # In Python, True and False count as whole numbers, so rule them out by name.
-        is_whole_number = isinstance(score, int) and not isinstance(score, bool)
-        if not is_whole_number or not 0 <= score <= highest_score:
-            problem("score", "is not a whole number from 0 to {}".format(highest_score))
+        if needs_review is not None and row.get("territory_status") == needs_review:
+            # An account that fits no segment is not scored. Its segment,
+            # score, tier and reasons must all be empty, so it never shows in
+            # a tier or segment tile, and its note must say why.
+            for field in ("segment", "score", "tier"):
+                if row.get(field) is not None:
+                    problem(field, "must be empty for an account that needs review")
+            if row.get("top_reasons"):
+                problem("top_reasons", "must be empty for an account that needs review")
+            if not note:
+                problem("territory_note", "must say why the account needs review")
+        else:
+            if row.get("segment") not in allowed_segments:
+                problem("segment", "is not one of the segments in weights.yaml")
+            if row.get("tier") not in allowed_tiers:
+                problem("tier", "is not one of the tiers in weights.yaml")
 
-        reasons = row.get("top_reasons")
-        reasons_are_text = isinstance(reasons, list) and reasons and all(is_text(r, 10 ** 6) for r in reasons)
-        if not reasons_are_text or len(REASON_SEPARATOR.join(reasons)) > limits["Top_Reasons__c"]["length"]:
-            problem("top_reasons", "is empty or too long")
+            score = row.get("score")
+            # In Python, True and False count as whole numbers, so rule them out by name.
+            is_whole_number = isinstance(score, int) and not isinstance(score, bool)
+            if not is_whole_number or not 0 <= score <= highest_score:
+                problem("score", "is not a whole number from 0 to {}".format(highest_score))
+
+            reasons = row.get("top_reasons")
+            reasons_are_text = isinstance(reasons, list) and reasons and all(is_text(r, 10 ** 6) for r in reasons)
+            if not reasons_are_text or len(REASON_SEPARATOR.join(reasons)) > limits["Top_Reasons__c"]["length"]:
+                problem("top_reasons", "is empty or too long")
 
         if not is_utc_time(row.get("scored_at")):
             problem("scored_at", "is not a UTC time like 2026-11-14T12:00:00Z")
@@ -179,10 +194,13 @@ def build_record(row, exists, owner_id=None):
             # Salesforce, not by a scoring job.
             record["OwnerId"] = owner_id
 
-    # The fields the engine owns, written on every run.
+    # The fields the engine owns, written on every run. An account that needs
+    # review has no score, tier, reasons or segment, and sends each of them
+    # as an explicit empty value (null). Salesforce then clears last run's
+    # score instead of keeping it next to the flag.
     record["Score__c"] = row["score"]
     record["Tier__c"] = row["tier"]
-    record["Top_Reasons__c"] = REASON_SEPARATOR.join(row["top_reasons"])
+    record["Top_Reasons__c"] = REASON_SEPARATOR.join(row["top_reasons"]) if row["top_reasons"] else None
     record["Last_Scored__c"] = row["scored_at"]
     record["Segment__c"] = row["segment"]
     if row["region"] is not None:

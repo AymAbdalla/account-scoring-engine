@@ -247,3 +247,61 @@ def test_new_account_with_no_matching_user_carries_no_owner():
 
 def test_existing_account_is_never_sent_an_owner():
     assert "OwnerId" not in build_record(make_row(1), exists=True, owner_id="005000000000001AAA")
+
+
+SMALL_NOTE = "Needs review: 30 employees is below the smallest segment, SMB (50 to 199)."
+
+
+def make_flagged_row(number=1, **changes):
+    """An account that fits no segment: not scored, flagged with the reason."""
+    row = make_row(
+        number, segment=None, score=None, tier=None, top_reasons=[],
+        territory_status="Needs review", territory_note=SMALL_NOTE,
+    )
+    row.update(changes)
+    return row
+
+
+def test_a_flagged_account_passes_the_check():
+    assert find_problems([make_row(1), make_flagged_row(2)], LIMITS, RULES) == []
+
+
+@pytest.mark.parametrize(
+    "changes, word",
+    [
+        ({"tier": "B"}, "tier"),
+        ({"score": 70}, "score"),
+        ({"segment": "SMB"}, "segment"),
+        ({"top_reasons": ["Hiring surge"]}, "top_reasons"),
+        ({"territory_note": ""}, "territory_note"),
+    ],
+)
+def test_a_flagged_account_must_carry_no_score_and_must_say_why(changes, word):
+    # Needs review means "not scored". A tier next to the flag would show the
+    # account in a tier tile it was never scored for, and an empty note would
+    # leave the reviewer guessing.
+    problems = find_problems([make_flagged_row(1, **changes)], LIMITS, RULES)
+    assert len(problems) == 1
+    assert "ACC-0001" in problems[0] and word in problems[0]
+
+
+@pytest.mark.parametrize("field", ["tier", "score", "segment"])
+def test_a_scored_account_with_an_empty_score_field_is_still_refused(field):
+    problems = find_problems([make_row(1, **{field: None})], LIMITS, RULES)
+    assert len(problems) == 1 and field in problems[0]
+
+
+def test_a_flagged_account_sends_empty_score_fields_so_old_values_are_cleared():
+    record = build_record(make_flagged_row(1), exists=True)
+    assert record == {
+        "attributes": {"type": "Account"},
+        "Sample_Id__c": "ACC-0001",
+        "Score__c": None,
+        "Tier__c": None,
+        "Top_Reasons__c": None,
+        "Last_Scored__c": "2026-11-14T12:00:00Z",
+        "Segment__c": None,
+        "Region__c": "EMEA",
+        "Territory_Status__c": "Needs review",
+        "Territory_Note__c": SMALL_NOTE,
+    }

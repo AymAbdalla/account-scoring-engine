@@ -28,7 +28,8 @@ class FakeResponse:
 class FakeOrg:
     """Answers the login, then the request for Account's fields."""
 
-    def __init__(self, login=None, fields=None, crash=None, fields_refusal=None, owner=None, users_refusal=None):
+    def __init__(self, login=None, fields=None, crash=None, fields_refusal=None, owner=None, users_refusal=None,
+                 picklists=None):
         self.fields_refusal = fields_refusal
         self.users_refusal = users_refusal
         self.login = login or FakeResponse(200, {
@@ -38,8 +39,20 @@ class FakeOrg:
         names = sorted(load_field_limits()) if fields is None else fields
         # The standard Account Owner field: settable on create, as read from the real org.
         owner = {"name": "OwnerId", "createable": True, "updateable": True} if owner is None else owner
-        self.fields = FakeResponse(200, {"fields": [
-            {"name": name, "createable": True, "updateable": True} for name in names] + ([owner] if owner else [])})
+        # Each picklist answers with its values the way the real org does:
+        # {"value": ..., "active": true}. By default they match force-app/.
+        limits = load_field_limits()
+        if picklists is None:
+            picklists = {name: [{"value": value, "active": True} for value in limit["values"]]
+                         for name, limit in limits.items() if "values" in limit}
+
+        def describe(name):
+            field = {"name": name, "createable": True, "updateable": True}
+            if name in picklists:
+                field["picklistValues"] = picklists[name]
+            return field
+
+        self.fields = FakeResponse(200, {"fields": [describe(name) for name in names] + ([owner] if owner else [])})
         self.crash = crash
 
     def post(self, url, data=None, timeout=None):
@@ -129,3 +142,35 @@ def test_check_fails_when_the_user_names_cannot_be_read(capsys):
         main(environ=ENVIRONMENT, http=FakeOrg(users_refusal=refusal))
     assert "would not list the active users" in str(stopped.value.code)
     assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
+
+
+# Picklist values: a restricted picklist refuses any value it does not hold,
+# so a value added in force-app/ but not yet deployed would fail the whole
+# write-back. The check finds that first, while it is still only reading.
+
+def test_check_reports_that_the_picklist_values_match(capsys):
+    main(environ=ENVIRONMENT, http=FakeOrg())
+    printed = capsys.readouterr().out
+    assert "Every picklist value in force-app/ is in Salesforce." in printed
+    assert_identifies_nothing(printed)
+
+
+def picklists_without(field, value, inactive=False):
+    picklists = {name: [{"value": v, "active": True} for v in limit["values"]]
+                 for name, limit in load_field_limits().items() if "values" in limit}
+    if inactive:
+        picklists[field] = [dict(entry, active=entry["value"] != value) for entry in picklists[field]]
+    else:
+        picklists[field] = [entry for entry in picklists[field] if entry["value"] != value]
+    return picklists
+
+
+@pytest.mark.parametrize("inactive", [False, True])
+def test_check_fails_when_salesforce_lacks_a_picklist_value_from_force_app(inactive):
+    org = FakeOrg(picklists=picklists_without("Territory_Status__c", "Needs review", inactive=inactive))
+    with pytest.raises(SystemExit) as stopped:
+        main(environ=ENVIRONMENT, http=org)
+    message = str(stopped.value.code)
+    assert "Salesforce check failed" in message
+    assert "Territory_Status__c: Salesforce has no active value 'Needs review'" in message
+    assert "deploy force-app/" in message
