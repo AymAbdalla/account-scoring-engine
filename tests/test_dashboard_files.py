@@ -108,11 +108,24 @@ def _keeps_only_accounts_with_a_tier(report):
     return False
 
 
+# The one report that lists accounts the engine did NOT score, on purpose:
+# the accounts that fit no segment, flagged Needs review.
+NEEDS_REVIEW_REPORT = "Account_Scoring/Accounts_Needing_Review"
+
+
 def test_every_report_counts_only_accounts_that_have_a_tier():
     kept = reports()
     assert kept, "there are no report files"
     for name, report in kept.items():
+        if name == NEEDS_REVIEW_REPORT:
+            continue  # checked below: it keeps only accounts flagged Needs review
         assert _keeps_only_accounts_with_a_tier(report), "{} would count accounts that were never scored".format(name)
+
+
+def test_the_needs_review_report_keeps_only_flagged_accounts():
+    report = reports().get(NEEDS_REVIEW_REPORT)
+    assert report is not None, "the Accounts Needing Review report is missing"
+    assert ("Account.Territory_Status__c", "equals", "Needs review") in _filters(report)
 
 
 def test_every_tile_draws_a_report_kept_in_the_repository():
@@ -381,7 +394,7 @@ def test_the_repository_changes_no_profile_and_no_standard_app():
 # --- Team Account Scoring: BDR, account list and territory (plan, db-4) ---
 
 
-def test_team_dashboard_has_its_seven_tiles():
+def test_team_dashboard_has_its_eight_tiles():
     found = dashboards()
     assert TEAM in found, "the Team Account Scoring dashboard file is missing"
     assert sorted(_text(tile, "header") for tile in tiles(found[TEAM])) == sorted(
@@ -393,8 +406,37 @@ def test_team_dashboard_has_its_seven_tiles():
             "By region, split by tier",
             "Tier A and B accounts by BDR",
             "Tier A accounts",
+            "Needs review",
         ]
     )
+
+
+def test_needs_review_table_shows_each_flagged_account_its_bdr_and_why():
+    wanted = [
+        ACCOUNT_NAME,
+        "Account.BDR__c",
+        "Account.Region__c",
+        "Account.Territory_Note__c",
+        "Account.Last_Scored__c",
+    ]
+    tile = _tile(dashboards().get(TEAM, ET.Element("none")), "Needs review")
+    assert tile is not None, "the Needs review tile is missing"
+    assert _text(tile, "componentType") == "FlexTable"
+    assert _table_columns(tile) == wanted
+    assert _text(tile, "report") == NEEDS_REVIEW_REPORT
+    assert _report_columns(reports()[NEEDS_REVIEW_REPORT]) == wanted
+
+
+def test_needs_review_tile_sits_below_every_other_tile_across_the_full_width():
+    # The last row: a manager reads the scores first, then what needs a person.
+    layout = dashboards()[TEAM].find(NS + "dashboardGridLayout")
+    placed = {
+        _text(component.find(NS + "dashboardComponent"), "header"): _box(component)
+        for component in layout.findall(NS + "dashboardGridComponents")
+    }
+    left, top, right, _ = placed.pop("Needs review")
+    assert (left, right) == (0, int(_text(layout, "numberOfColumns")))
+    assert top >= max(bottom for _, _, _, bottom in placed.values())
 
 
 def test_by_bdr_tile_shows_every_bdrs_tier_a_and_b_accounts_most_first():
