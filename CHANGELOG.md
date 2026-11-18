@@ -10,13 +10,13 @@ Only list an item here once it's built and checked.
 
 ## [Unreleased]
 
-Work towards v0.1.0. Everything listed here is built, tested and checked, except the items marked "not yet proven in the org", which are built and tested against a stand-in for Salesforce. Still to come before v0.1.0 is released: deploying `force-app/` and a real run for those items, new dashboard pictures, and the demo video. The weekday schedule has now run by itself on GitHub twice, on November 16 and 17, writing all 1,800 accounts each time with none failed; GitHub started both runs hours after 7:00 AM.
+Work towards v0.1.0. Everything listed here is built, tested and checked. The items for the Needs review flag and every reason were proven in the org by a real run on November 18, which ended `Scored 1794, needs review 6, written 1800, failed 0.` Still to come before v0.1.0 is released: new dashboard pictures and the demo video. The weekday schedule has now run by itself on GitHub twice, on November 16 and 17, writing all 1,800 accounts each time with none failed; GitHub started both runs hours after 7:00 AM.
 
 ### Added
 
 Needs review
-- An account that fits no segment, because it has fewer than 50 employees or no employee count, is no longer an error that stops the run (not yet proven in the org). It is not scored; it is written to Salesforce with Territory Status "Needs review", a note that says why, and its Score, Tier, Segment and Top Reasons empty (cleared, if it was scored before). The run carries on with every other account, and its last line reads, for example, `Scored 1794, needs review 6, written 1800, failed 0.` A broken file, such as a duplicate id, still stops the run before anything is sent.
-- A "Needs review" table along the bottom of the team dashboard (not yet proven in the org): each flagged account with its BDR, region, the reason and when it was last scored, from a new Accounts Needing Review report.
+- An account that fits no segment, because it has fewer than 50 employees or no employee count, is no longer an error that stops the run. It is not scored; it is written to Salesforce with Territory Status "Needs review", a note that says why, and its Score, Tier, Segment and Top Reasons empty (cleared, if it was scored before). The run carries on with every other account, and its last line reads, for example, `Scored 1794, needs review 6, written 1800, failed 0.` A broken file, such as a duplicate id, still stops the run before anything is sent.
+- A "Needs review" table along the bottom of the team dashboard: each flagged account with its BDR, region, the reason and when it was last scored, from a new Accounts Needing Review report.
 - The connection check also confirms that the org holds every picklist value in `force-app/`. A value added in the files but not yet deployed, such as "Needs review", fails the check while it is still only reading, before any write.
 - Six of the 1,800 sample accounts (ACC-0075, then every 300th) have fewer than 50 employees, so the demo shows the flag: 1,794 accounts are scored and 6 need review. Every other account is unchanged.
 
@@ -62,7 +62,7 @@ Tests
 
 ### Changed
 
-- Every reason shows (not yet proven in the org): an account lists every rule it matched, not only the top three. An 85-point account now shows four reasons. Rules version 2; no weight, band or tier cutoff changed, so every score and tier is the same as before.
+- Every reason shows: an account lists every rule it matched, not only the top three. An 85-point account now shows four reasons. Rules version 2; no weight, band or tier cutoff changed, so every score and tier is the same as before.
 - Tier A needs at least two of the three timing signals. The earlier wording said one; full fit plus one timing signal is 70 points, which is Tier B.
 - Segment and Region are written to Salesforce on every run. They were first-load only before the engine worked them out itself.
 - The roadmap in the README is grouped into v0.2, v0.3 and v0.4.

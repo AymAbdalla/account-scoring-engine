@@ -1,14 +1,14 @@
 # Case study: Account Scoring Engine
 
-Every weekday, 1,800 accounts get a tier and their top three reasons in plain English, written straight into Salesforce where BDRs already work.
+Every weekday, 1,794 accounts get a tier and every reason behind their score in plain English, written straight into Salesforce where BDRs already work. Six accounts too small to fit any segment are flagged for review instead of scored.
 
-Built by Ayman Abdalla, November 12 to 15, 2026. Python, Salesforce and GitHub Actions.
+Built by Ayman Abdalla, November 12 to 18, 2026. Python, Salesforce and GitHub Actions.
 
 | Tier A | Tier B | Tier C | Tier D |
 |---:|---:|---:|---:|
-| 87 | 302 | 621 | 790 |
+| 87 | 300 | 618 | 789 |
 
-90 accounts are flagged as outside their BDR's territory, and every count matches a direct query in the org.
+90 accounts are flagged as outside their BDR's territory. These are the figures from the real run in the Salesforce Developer org on November 18, and every count matches a direct query in the org.
 
 ## The problem
 
@@ -16,15 +16,16 @@ A BDR opens their book and asks one question: which accounts do I work first, an
 
 | Accounts | BDRs | Rules | Tests | Merged pull requests |
 |---:|---:|---:|---:|---:|
-| 1,800 | 60 (fictional) | 5, worth 100 points | 414 | 10 |
+| 1,800 | 60 (fictional) | 5, worth 100 points | 448 | 15 |
 
 ## How it works
 
-![Architecture: GitHub Actions starts the Python scoring engine on a schedule or on demand. It reads sample accounts and signals plus weights.yaml, scores each account, picks its top reasons and upserts the results to Salesforce.](architecture.svg)
+![Architecture: GitHub Actions starts the Python scoring engine on a schedule or on demand. It reads sample accounts and signals plus weights.yaml, scores each account, lists its reasons and upserts the results to Salesforce.](architecture.svg)
 
 - **Built segments and territories in.** Employee count sets the segment and headquarters country sets the region. An account held by a BDR who covers a different territory is flagged with the evidence. It is never moved.
 - **Built the score from fit plus timing.** Fit is worth 50 points at most, so reaching Tier A at 75 points needs at least two of the three timing signals. A good-fit account with no reason to call now does not jump the queue.
-- **Built every score to explain itself.** Each account carries up to three reasons in plain English, the rules that earned it the most points.
+- **Built every score to explain itself.** Each account lists every rule that earned it points, in plain English.
+- **Built bad data to be flagged, not to stop the run.** An account with fewer than 50 employees, or no employee count, fits no segment. It is written to Salesforce as "Needs review" with a note saying why, and the run carries on with every other account.
 
 ## Why rules and not a model
 
@@ -37,7 +38,7 @@ A BDR opens their book and asks one question: which accounts do I work first, an
 - **Built a least-privilege integration user.** It signs in with OAuth client credentials and has no delete permission.
 - **Built an all-or-nothing upsert.** Records are matched on a fixed sample id and sent up to 1,000 per request, each taking under 5 seconds.
 - **Built a count-back after every batch.** The run reads back what Salesforce saved and fails loudly when the numbers don't match.
-- **Built the org as source.** Ten fields, the permission sets, nine reports, two dashboards and the app are files in this repository, deployed with the Salesforce CLI. A read-only Scoring_Viewer permission set covers people who only look.
+- **Built the org as source.** Ten fields, the permission sets, ten reports, two dashboards and the app are files in this repository, deployed with the Salesforce CLI. A read-only Scoring_Viewer permission set covers people who only look.
 - **Built logs that leak nothing.** Logs never print the org address, and errors are reported as codes only.
 
 ## Failure tests
@@ -47,7 +48,7 @@ A BDR opens their book and asks one question: which accounts do I work first, an
 
 ## Dashboards
 
-Both dashboards were checked as two BDR users, not only as an admin.
+Both dashboards were checked as two BDR users, not only as an admin. These pictures were taken before the six accounts were flagged for review (1,800 scored then), so they show slightly different tier counts. They are retaken for the release.
 
 ![My Accounts dashboard, as one BDR sees it.](dashboard-my-accounts.png)
 
@@ -63,7 +64,7 @@ I built this with AI-assisted development. I wrote the spec and the rules, set t
 
 - **Built from a written spec and six plans,** one for each part: local scoring, the territory check, the Salesforce write-back, the scale-up to 1,800 accounts, the scheduled run and the dashboards.
 - **Built tests first.** Each test was seen failing before the code that makes it pass.
-- **Built in 10 merged pull requests** between November 12 and 15.
+- **Built in 15 merged pull requests** between November 12 and 18.
 - **Built an independent check into every step.** A separate review session checked each slice against its plan: 169 check rounds, 25 of them failed and sent back for fixes, plus a security pass.
 - **Built release hygiene in.** Pinned workflow actions, a dependency lock file and a changelog.
 
