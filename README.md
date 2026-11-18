@@ -1,18 +1,18 @@
 # Account Scoring Engine
 
-**Scores every account on rules you can read, then writes the score, tier and top three reasons into Salesforce on a schedule, so each BDR knows where to look first.**
+**Scores every account on rules you can read, then writes the score, tier and every reason behind the score into Salesforce on a schedule, so each BDR knows where to look first.**
 
 ▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md) · [All rights reserved](LICENSE)
 
-**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 and at 1,800 accounts, each including a forced failure. The weekday schedule has run by itself on GitHub, on November 16 and 17, each time writing all 1,800 accounts with none failed. GitHub started both runs hours after 7:00 AM. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. The demo video is still to come before v0.1.0 is released.
+**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 and at 1,800 accounts, each including a forced failure. The weekday schedule has run by itself on GitHub, on November 16 and 17, each time writing all 1,800 accounts with none failed. GitHub started both runs hours after 7:00 AM. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. Two newer changes are built and tested against a stand-in for Salesforce but not yet run in the org: every account lists every reason behind its score, and an account that fits no segment is flagged for review instead of stopping the run. The demo video is still to come before v0.1.0 is released.
 
 ![The team dashboard: 1,800 accounts scored, 90 outside their BDR's territory, accounts by tier as columns, and stacked bars by segment and by region, each split by tier.](docs/dashboard-team.png)
 
-_The team dashboard, for a manager: every scored account by tier, segment and region. More under [Dashboards](#dashboards)._
+_The team dashboard, for a manager: every scored account by tier, segment and region. These pictures show the numbers before six sample accounts were made too small to score (1,800 scored then, 1,794 now); they are retaken after the next real run. More under [Dashboards](#dashboards)._
 
 ## Architecture at a glance
 
-![Architecture: GitHub Actions starts the Python scoring engine on a schedule or on demand. It reads sample accounts and signals plus weights.yaml, sorts each account into a segment, scores it, picks the top 3 reasons and upserts the results to Salesforce, where 60 BDRs see ranked lists.](docs/architecture.svg)
+![Architecture: GitHub Actions starts the Python scoring engine on a schedule or on demand. It reads sample accounts and signals plus weights.yaml, sorts each account into a segment, scores it, lists every reason and upserts the results to Salesforce, where 60 BDRs see ranked lists.](docs/architecture.svg)
 
 GitHub starts the engine, so nothing in a run needs a person, a laptop or a chat window. A Run button starts it on demand, and a schedule starts it on weekdays from 7:00 AM Eastern.
 
@@ -21,7 +21,8 @@ GitHub starts the engine, so nothing in a run needs a person, a laptop or a chat
 - **Each territory has its own reps.** A territory is a company-size segment in a headquarters region, for example "Enterprise, EMEA". The engine works out both from the account: the segment from employee count and the region from headquarters country. A score ranks an account inside its own segment, so a small company isn't marked down for being small.
 - **Accounts in the wrong book get flagged.** The engine compares each account's territory with the territory of the BDR who holds it. A mismatch is flagged with the evidence, such as "205 employees is Mid-Market; BDR covers SMB". It only flags. It never moves an account.
 - **Rules live in one file.** `weights.yaml` holds the segment bands, the regions and their countries, five rules worth 100 points and the tier cutoffs. Changing a weight changes no code, and every score records which rules version made it.
-- **Every score explains itself.** Each account gets a score, a tier (A to D) and up to three rules that earned it the most points, in plain English. An account that matched no rule says "No rules matched".
+- **Every score explains itself.** Each account gets a score, a tier (A to D) and every rule that earned it points, highest first, in plain English, so the reasons add up to the score. An account that matched no rule says "No rules matched".
+- **A bad account is flagged, not fatal.** An account that fits no segment (fewer than 50 employees, or no employee count) isn't scored. The run carries on with every other account, and that account lands in Salesforce as "Needs review" with the reason, for a person to check. A broken file, such as a duplicate id, still stops the run before anything is written.
 - **Built to run unattended.** One command scores all accounts and writes the results into Salesforce. It only updates the fields it owns, it's safe to run twice, and it fails loudly if anything goes wrong. A GitHub workflow runs that command on a schedule and on demand, and a failed run shows red.
 - **Each BDR sees their own accounts first.** One shared dashboard, My Accounts, loads as whoever is looking and shows only the accounts that person owns. A second dashboard shows a manager the whole team.
 - **Each BDR owns their accounts.** When the engine first creates an account, a Salesforce user with the same name as the account's BDR becomes its owner. After that the engine never touches the owner.
@@ -30,15 +31,15 @@ GitHub starts the engine, so nothing in a run needs a person, a laptop or a chat
 
 1. Set up Python 3.13 (the version named in `.python-version`): `python3.13 -m venv .venv && source .venv/bin/activate && pip install --require-hashes -r requirements.lock`. The lock file lists every library with a checksum, and pip refuses any file that doesn't match.
 2. Make the sample data: `python data/generate_sample.py`
-3. Score it locally: `python run_local.py` (prints tier counts, the top 3 accounts for each segment and the accounts outside their BDR's territory, and saves `output/scores.json`)
+3. Score it locally: `python run_local.py` (prints tier counts, the top 3 accounts for each segment, the accounts outside their BDR's territory and the accounts that need review, and saves `output/scores.json`)
 
 To write the scores into a Salesforce Developer org as well:
 
-4. Deploy the Salesforce setup: `sf project deploy start --source-dir force-app --target-org <your org>`. That is the ten fields, two permission sets, nine reports, the two dashboards, and the Account Scoring app with its Home page.
+4. Deploy the Salesforce setup: `sf project deploy start --source-dir force-app --target-org <your org>`. That is the ten fields, two permission sets, ten reports, the two dashboards, and the Account Scoring app with its Home page.
 5. In Salesforce Setup, create a user for the engine on the Salesforce Integration licence, give it the Salesforce API Integration permission set licence, and assign it the `Scoring_Engine` permission set. The engine logs in as this user, which can read, create and edit accounts but not delete them.
 6. In Setup, create an External Client App with the client credentials flow switched on, running as that user.
 7. Copy `.env.example` to `.env` and fill in the org address and the app's key and secret. Git ignores `.env`.
-8. Check the connection: `python check_salesforce.py` (reads only; it also confirms the engine can set an owner on a new account)
+8. Check the connection: `python check_salesforce.py` (reads only; it also confirms the engine can set an owner on a new account, and that the org holds every picklist value in `force-app/`, such as "Needs review")
 9. Write and read back: `python write_back.py` (creates the 1,800 accounts the first time, then updates the same 1,800 on every later run)
 10. Give each person who should see the dashboards the `Scoring_Viewer` permission set. It lets them read the ten scoring fields and open the Account Scoring app, and nothing else.
 11. In Salesforce, open the App Launcher and pick **Account Scoring**. Home shows My Accounts; the team dashboard is under Dashboards. Press **Refresh** after a run: a dashboard shows the numbers from its last refresh.
@@ -88,7 +89,7 @@ Both dashboards, their reports, the Home page and the app are files in `force-ap
 
 ![My Accounts as one BDR: a ring of 30 accounts by tier, a table of eight Tier B accounts sorted by score with the time each was last scored, and one account outside the BDR's territory with the engine's note.](docs/dashboard-my-accounts.png)
 
-**Team Account Scoring, for a manager.** Seven tiles: accounts scored, accounts outside their BDR's territory, accounts by tier, by segment and by region (each split by tier), Tier A and B accounts for each BDR, and every Tier A account with its BDR, segment, region, score and the time it was last scored.
+**Team Account Scoring, for a manager.** Eight tiles: accounts scored, accounts outside their BDR's territory, accounts by tier, by segment and by region (each split by tier), Tier A and B accounts for each BDR, every Tier A account with its BDR, segment, region, score and the time it was last scored, and, along the bottom, every account that needs review with its BDR, region and the reason. The pictures here show the seven tiles from before the Needs review table was added.
 
 ![The third row of the team dashboard: one bar for each BDR showing their Tier A and Tier B accounts, most first, beside a table of Tier A accounts with BDR, segment, region, score and last scored time.](docs/dashboard-team-bdr.png)
 
@@ -124,19 +125,22 @@ Company size decides **who works the account**, not how good it is. The engine p
 | Enterprise | 1,000 to 5,000 |
 | Large Enterprise | 5,001 and up |
 
+An account with fewer than 50 employees, or no employee count, fits no segment. It isn't scored; it is flagged "Needs review" so a person can check it.
+
 Fit rules (countries and industry) add up to 50 points at most, so **an account can't reach Tier A on fit alone**. It needs at least two of the three timing signals: a hiring surge, a new HR leader or recent engagement. Full fit plus one timing signal tops out at 70, which is Tier B.
 
 Missing data scores zero but is reported as unknown, never as a negative signal.
 
 ## What the territory check means
 
-Every account gets one of three statuses:
+Every account gets one of four statuses:
 
 | Status | Meaning |
 |---|---|
 | In territory | The account's segment and region match its BDR's territory |
 | Outside territory | The size, the region or both don't match; the note says which and shows the number or country |
 | Not checked | The engine couldn't tell, for example the headquarters country isn't in its country table. It says so and doesn't guess |
+| Needs review | The account fits no segment (fewer than 50 employees, or no employee count), so it isn't scored. It keeps its region, BDR and Last Scored time; its score, tier, segment and reasons are empty, and the note says why, for example "Needs review: 30 employees is below the smallest segment, SMB (50 to 199)." |
 
 The check doesn't change the score. An account that has outgrown its BDR's size band keeps its score and is ranked in the segment it now belongs to.
 

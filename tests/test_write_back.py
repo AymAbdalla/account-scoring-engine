@@ -195,7 +195,7 @@ def run(org, accounts, scored_at=None):
 def test_first_run_creates_every_account_with_every_field():
     org = FakeOrg()
     result, printed = run(org, [make_account(1), make_account(2), make_account(3)])
-    assert result == {"scored": 3, "written": 3, "failed": 0}
+    assert result == {"scored": 3, "needs_review": 0, "written": 3, "failed": 0}
     assert sorted(org.accounts) == ["ACC-0001", "ACC-0002", "ACC-0003"]
     saved = org.accounts["ACC-0001"]
     assert saved["Name"] == "Sample Company 1"
@@ -216,7 +216,7 @@ def test_second_run_updates_in_place_and_keeps_a_hand_edited_bdr_and_name():
     org.accounts["ACC-0001"]["Score__c"] = 1
 
     result, _ = run(org, accounts, scored_at="2026-11-14T12:00:05Z")  # a later run
-    assert result == {"scored": 2, "written": 2, "failed": 0}
+    assert result == {"scored": 2, "needs_review": 0, "written": 2, "failed": 0}
     assert sorted(org.accounts) == ["ACC-0001", "ACC-0002"]      # no duplicates
     assert org.accounts["ACC-0001"]["BDR__c"] == "Edited By Hand"  # not overwritten
     assert org.accounts["ACC-0001"]["Name"] == "Renamed By Hand"   # not overwritten
@@ -262,7 +262,7 @@ def test_more_than_200_records_go_in_one_request_split_into_batches():
     # request together, but not batches sent in separate requests.
     org = FakeOrg()
     result, _ = run(org, [make_account(number) for number in range(1, 251)])
-    assert result == {"scored": 250, "written": 250, "failed": 0}
+    assert result == {"scored": 250, "needs_review": 0, "written": 250, "failed": 0}
     assert len(org.accounts) == 250
     assert [detail for kind, detail in org.requests if kind == "write"] == [[200, 50]]
 
@@ -300,7 +300,7 @@ def test_one_record_more_than_a_request_can_hold_goes_in_a_second_request():
     # 1,000 records (5 batches of 200), and a larger run is sent as several.
     org = FakeOrg()
     result, _ = run(org, [make_account(number) for number in range(1, 1002)])
-    assert result == {"scored": 1001, "written": 1001, "failed": 0}
+    assert result == {"scored": 1001, "needs_review": 0, "written": 1001, "failed": 0}
     assert [detail for kind, detail in org.requests if kind == "write"] == [[200, 200, 200, 200, 200], [1]]
 
 
@@ -373,7 +373,7 @@ def test_account_stored_with_different_letter_case_is_still_treated_as_existing(
     org = FakeOrg()
     org.accounts["acc-0001"] = {"Sample_Id__c": "acc-0001", "Name": "Renamed By Hand", "BDR__c": "Edited By Hand"}
     result, _ = run(org, [make_account(1)])
-    assert result == {"scored": 1, "written": 1, "failed": 0}
+    assert result == {"scored": 1, "needs_review": 0, "written": 1, "failed": 0}
     assert list(org.accounts) == ["acc-0001"]
     assert org.accounts["acc-0001"]["Name"] == "Renamed By Hand"
     assert org.accounts["acc-0001"]["BDR__c"] == "Edited By Hand"
@@ -711,16 +711,57 @@ def test_program_hides_settings_that_salesforce_echoes_back_after_login(tmp_path
     assert_identifies_nothing(str(stopped.value.code) + capsys.readouterr().out)
 
 
-def test_program_explains_an_account_it_cannot_score_and_sends_nothing(tmp_path, capsys):
-    # An expected problem with the data: the engine's own words are shown.
+def test_program_writes_an_account_that_fits_no_segment_as_needs_review_and_carries_on(tmp_path, capsys):
+    # ACC-0002 has 10 employees: below SMB, so it is not scored. The run does
+    # not stop: ACC-0001 is scored as usual and ACC-0002 is written with the
+    # flag and the reason, and no score, tier, segment or reasons.
     org = FakeOrg()
     path = write_accounts_file(tmp_path, [make_account(1), make_account(2, employees=10)])
+    main(path, environ=ENVIRONMENT, http=org)
+    assert "Scored 1, needs review 1, written 2, failed 0." in capsys.readouterr().out
+    assert org.accounts["ACC-0001"]["Tier__c"] == "B"
+    flagged = org.accounts["ACC-0002"]
+    assert flagged["Territory_Status__c"] == "Needs review"
+    assert flagged["Territory_Note__c"] == "Needs review: 10 employees is below the smallest segment, SMB (50 to 199)."
+    for field in ("Score__c", "Tier__c", "Segment__c", "Top_Reasons__c"):
+        assert flagged[field] is None, field
+    # A new flagged account is still created with its name and BDR.
+    assert flagged["Name"] == "Sample Company 2" and flagged["BDR__c"] == "Sample Person"
+
+
+def test_a_scored_account_that_later_fits_no_segment_has_its_old_score_cleared():
+    # The record sends an explicit empty value, which Salesforce saves as
+    # empty. Leaving the field out would keep last run's score next to the flag.
+    org = FakeOrg()
+    run(org, [make_account(1), make_account(2)], scored_at="2026-11-18T12:00:00Z")
+    assert org.accounts["ACC-0002"]["Tier__c"] == "B"
+    result, printed = run(org, [make_account(1), make_account(2, employees=None)], scored_at="2026-11-18T13:00:00Z")
+    assert result == {"scored": 1, "needs_review": 1, "written": 2, "failed": 0}
+    saved = org.accounts["ACC-0002"]
+    assert saved["Territory_Status__c"] == "Needs review"
+    assert saved["Territory_Note__c"] == "Needs review: no employee count."
+    assert (saved["Score__c"], saved["Tier__c"], saved["Segment__c"], saved["Top_Reasons__c"]) == (None, None, None, None)
+    assert saved["Last_Scored__c"] == "2026-11-18T13:00:00Z"
+
+
+def test_a_failed_run_with_flagged_accounts_counts_them_as_not_written():
+    org = FakeOrg()
+    org.reject["ACC-0001"] = "Tier: bad value for restricted picklist field: B"
+    with pytest.raises(WriteBackFailed) as caught:
+        run(org, [make_account(1), make_account(2), make_account(3, employees=20)])
+    assert caught.value.counts_line() == "Scored 2, needs review 1, written 0, failed 3."
+
+
+def test_a_broken_file_still_stops_the_run_before_anything_is_sent(tmp_path, capsys):
+    # Flagging is for an account that fits no segment. A duplicate id is a
+    # broken file, and still stops everything.
+    org = FakeOrg()
+    path = write_accounts_file(tmp_path, [make_account(1), make_account(1, employees=10)])
     with pytest.raises(SystemExit) as stopped:
         main(path, environ=ENVIRONMENT, http=org)
     assert "WRITE-BACK FAILED" in str(stopped.value.code)
-    assert "Account ACC-0002: employees is 10, which fits no segment" in str(stopped.value.code)
-    assert "Nothing was scored or written." in capsys.readouterr().out
-    assert org.requests == []
+    assert "appears more than once" in str(stopped.value.code)
+    assert write_requests(org) == []
 
 
 def test_program_treats_a_value_error_nobody_expected_like_any_other_surprise(tmp_path, capsys):
@@ -785,7 +826,7 @@ def write_requests(org):
 def test_1800_accounts_go_as_two_requests_with_a_count_after_each():
     org = FakeOrg()
     result, printed = run(org, make_1800(), scored_at=FROZEN)
-    assert result == {"scored": 1800, "written": 1800, "failed": 0}
+    assert result == {"scored": 1800, "needs_review": 0, "written": 1800, "failed": 0}
     assert write_requests(org) == [[200, 200, 200, 200, 200], [200, 200, 200, 200]]
     # A count before anything is sent, then one after each request. The read
     # of the users is there because every account in this run is new.
@@ -811,7 +852,7 @@ def test_second_request_refused_keeps_the_first_1000_and_reports_the_other_800_a
     # Running again, once the cause is gone, leaves all 1,800 with one time.
     org.reject.clear()
     result, _ = run(org, make_1800(), scored_at=LATER_RUN)
-    assert result == {"scored": 1800, "written": 1800, "failed": 0}
+    assert result == {"scored": 1800, "needs_review": 0, "written": 1800, "failed": 0}
     assert len(org.accounts) == 1800
     assert {fields["Last_Scored__c"] for fields in org.accounts.values()} == {LATER_RUN}
 

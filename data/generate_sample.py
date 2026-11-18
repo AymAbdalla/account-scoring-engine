@@ -14,7 +14,11 @@ territory check has something to find:
     region, both (30 of each). Every BDR ends up with one or two;
   - every 100th account counting from number 50 (ACC-0050, ACC-0150, ...
     ACC-1750, 18 in all) gets a country that is not in the country table in
-    weights.yaml.
+    weights.yaml;
+  - every 300th account counting from number 75 (ACC-0075, ACC-0375, ...
+    ACC-1575, 6 in all, each with a different BDR) gets fewer than 50
+    employees. It fits no segment, so the engine flags it "Needs review"
+    instead of scoring it.
 
 The seed below fixes the "random" choices, so this script writes exactly the
 same files every time it runs.
@@ -66,6 +70,8 @@ MOVE_CASES = ["size", "region", "both"]  # the moved accounts take turns between
 UNKNOWN_COUNTRY_EVERY = 100  # every 100th account gets a country the table does not know...
 UNKNOWN_COUNTRY_FIRST = 50   # ...counting from number 50: 50, 150, 250, ...
 UNKNOWN_COUNTRY = "Iceland"
+SMALL_COMPANY_EVERY = 300  # every 300th account gets fewer than 50 employees...
+SMALL_COMPANY_FIRST = 75   # ...counting from number 75: 75, 375, ..., 1575
 
 CHANCE_MANY_COUNTRIES = 0.50
 CHANCE_HIRING_SURGE = 0.30
@@ -147,6 +153,11 @@ def make_accounts():
                             hq_country = extra.choice(countries_by_region[other_region])
                     if number % UNKNOWN_COUNTRY_EVERY == UNKNOWN_COUNTRY_FIRST:
                         hq_country = UNKNOWN_COUNTRY
+                    if number % SMALL_COMPANY_EVERY == SMALL_COMPANY_FIRST:
+                        # 5, 13, 21, 29, 37 and 45 employees: worked out from
+                        # the number, with no random draw, so every other
+                        # value in the file stays exactly as it was.
+                        employees = 5 + 8 * (number // SMALL_COMPANY_EVERY)
 
                     accounts.append(
                         {

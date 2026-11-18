@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Territory_Status__c</fullName>
-    <description>Whether the account sits inside the territory (segment and region) of the BDR who holds it. Written by the scoring engine on every run. The engine only flags; it never moves an account.</description>
+    <description>Whether the account sits inside the territory (segment and region) of the BDR who holds it. Written by the scoring engine on every run. The engine only flags; it never moves an account. Needs review means the account fits no segment (too few employees, or no employee count), so it was not scored.</description>
     <label>Territory Status</label>
     <required>false</required>
     <type>Picklist</type>
@@ -23,6 +23,11 @@
                 <fullName>Not checked</fullName>
                 <default>false</default>
                 <label>Not checked</label>
+            </value>
+            <value>
+                <fullName>Needs review</fullName>
+                <default>false</default>
+                <label>Needs review</label>
             </value>
         </valueSetDefinition>
     </valueSet>

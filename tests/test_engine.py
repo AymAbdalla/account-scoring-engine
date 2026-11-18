@@ -48,7 +48,8 @@ def test_account_matching_no_rule_scores_0_and_is_tier_d():
 
 
 def test_reasons_come_out_highest_points_first_and_ties_keep_file_order():
-    # All five rules match: the two 25-point rules, then the 20-point rule.
+    # All five rules match, so all five reasons show: the two 25-point rules,
+    # the 20-point rule, then the two 15-point rules in file order.
     everything = make_account(
         countries=5,
         industry="retail",
@@ -60,6 +61,8 @@ def test_reasons_come_out_highest_points_first_and_ties_keep_file_order():
         "Operates in 3 or more countries",
         "Hourly-workforce industry",
         "Hiring surge",
+        "New HR leader",
+        "Engaged in the last 14 days",
     ]
     # Only the timing rules match: 20 points, then the two 15-point rules.
     timing_only = make_account(hiring_surge=True, new_hr_leader=True, days_since_engaged=3)
@@ -68,6 +71,21 @@ def test_reasons_come_out_highest_points_first_and_ties_keep_file_order():
         "New HR leader",
         "Engaged in the last 14 days",
     ]
+
+
+def test_every_matched_rule_shows_so_the_reasons_add_up_to_the_score():
+    # 25 + 25 + 20 + 15 = 85. Before rules version 2 only the top three showed,
+    # and their points added up to 70.
+    account = make_account(countries=5, industry="retail", hiring_surge=True, new_hr_leader=True)
+    result = score_account(account, RULES)
+    assert result["score"] == 85
+    assert result["top_reasons"] == [
+        "Operates in 3 or more countries",
+        "Hourly-workforce industry",
+        "Hiring surge",
+        "New HR leader",
+    ]
+    assert result["rules_version"] == 2
 
 
 @pytest.mark.parametrize(
@@ -116,10 +134,34 @@ def test_engagement_counts_on_day_14_and_not_on_day_15():
     assert score_account(make_account(days_since_engaged=15), RULES)["score"] == 0
 
 
-def test_account_below_the_smallest_segment_stops_with_a_clear_error():
-    # 49 employees is under the smallest band (SMB starts at 50), so no segment fits.
-    with pytest.raises(ValueError, match="ACC-TEST"):
-        score_account(make_account(employees=49), RULES)
+@pytest.mark.parametrize("employees", [49, 0, None, "lots", 45.5, True])
+def test_account_that_fits_no_segment_is_not_scored(employees):
+    # 49 is under the smallest band (SMB starts at 50). A missing count or one
+    # that is not a whole number fits no band either. The account is not
+    # scored, so nothing about it can be ranked against a segment.
+    result = score_account(make_account(employees=employees, countries=5, industry="retail"), RULES)
+    assert result["segment"] is None
+    assert result["score"] is None
+    assert result["tier"] is None
+    assert result["top_reasons"] == []
+    # Its region still comes from its country.
+    assert result["region"] == "North America"
+
+
+@pytest.mark.parametrize(
+    "employees, note",
+    [
+        (49, "Needs review: 49 employees is below the smallest segment, SMB (50 to 199)."),
+        (12, "Needs review: 12 employees is below the smallest segment, SMB (50 to 199)."),
+        (None, "Needs review: no employee count."),
+        ("lots", "Needs review: the employee count is not a whole number."),
+        (45.5, "Needs review: the employee count is not a whole number."),
+    ],
+)
+def test_account_that_fits_no_segment_is_flagged_for_review_with_the_reason(employees, note):
+    # The flag wins over every territory result, even a missing BDR.
+    assert territory(employees=employees) == {"territory_status": "Needs review", "territory_note": note}
+    assert territory(employees=employees, bdr=None)["territory_status"] == "Needs review"
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,8 @@
 
 Prints how many accounts landed in each tier for each segment, then the top 3
 accounts in each segment, then the accounts that sit outside their BDR's
-territory. Also saves every score to output/scores.json.
+territory, then any account that fits no segment and needs a person to review
+it. Also saves every score to output/scores.json.
 
 Run from the project folder:  python run_local.py
 """
@@ -35,8 +36,9 @@ def score_all(accounts, rules, roster, scored_at=None):
         result["scored_at"] = scored_at
         results.append(result)
     # Ranking order: highest score first. Equal scores go by account id,
-    # so the order is the same on every run.
-    results.sort(key=lambda r: (-r["score"], r["id"]))
+    # so the order is the same on every run. Accounts flagged for review have
+    # no score; they come after every scored account, by id.
+    results.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0), r["id"]))
     return results
 
 
@@ -51,11 +53,20 @@ def print_tier_counts(results, rules):
         grand_total += len(in_segment)
         print("{:<18}".format(segment["name"]) + "".join("{:>5}".format(c) for c in counts) + "{:>7}".format(len(in_segment)))
     print("{:<18}".format("All segments") + " " * (5 * len(tier_names)) + "{:>7}".format(grand_total))
+    needs_review = sum(1 for r in results if r["tier"] is None)
+    if needs_review:
+        print("{:<18}".format("Needs review") + " " * (5 * len(tier_names)) + "{:>7}".format(needs_review))
 
 
 def print_territory(results, accounts, rules):
-    """Print how many accounts are in, outside or not checked, then list the flagged ones."""
-    statuses = list(rules["territory_statuses"].values())
+    """Print how many accounts are in, outside or not checked, then list the flagged ones.
+
+    Accounts that need review have no segment, so they are left out here and
+    listed by print_needs_review instead.
+    """
+    review = rules["territory_statuses"]["needs_review"]
+    statuses = [status for status in rules["territory_statuses"].values() if status != review]
+    results = [r for r in results if r["territory_status"] != review]
     accounts_by_id = {account["id"]: account for account in accounts}
     print()
     print("Territory check, by the account's own segment")
@@ -76,6 +87,21 @@ def print_territory(results, accounts, rules):
     for result in flagged:
         account = accounts_by_id[result["id"]]
         print("  {}  {}  (BDR: {}, Tier {}, Score {})".format(result["id"], account["name"], account["bdr"], result["tier"], result["score"]))
+        print("    {}".format(result["territory_note"]))
+
+
+def print_needs_review(results, accounts, rules):
+    """List the accounts that fit no segment, so were not scored, with the reason."""
+    review = rules["territory_statuses"]["needs_review"]
+    flagged = [r for r in results if r["territory_status"] == review]
+    if not flagged:
+        return
+    accounts_by_id = {account["id"]: account for account in accounts}
+    print()
+    print("Needs review: not scored ({})".format(len(flagged)))
+    for result in flagged:
+        account = accounts_by_id[result["id"]]
+        print("  {}  {}  (BDR: {})".format(result["id"], account["name"], account["bdr"]))
         print("    {}".format(result["territory_note"]))
 
 
@@ -106,10 +132,11 @@ if __name__ == "__main__":
     print_tier_counts(results, rules)
     print_top_accounts(results, accounts, rules)
     print_territory(results, accounts, rules)
+    print_needs_review(results, accounts, rules)
 
     OUTPUT_PATH.parent.mkdir(exist_ok=True)
     with open(OUTPUT_PATH, "w") as output_file:
         json.dump(results, output_file, indent=2)
         output_file.write("\n")
     print()
-    print("Saved {} scores to {} (rules version {})".format(len(results), OUTPUT_PATH.relative_to(PROJECT_FOLDER), rules["version"]))
+    print("Saved {} results to {} (rules version {})".format(len(results), OUTPUT_PATH.relative_to(PROJECT_FOLDER), rules["version"]))

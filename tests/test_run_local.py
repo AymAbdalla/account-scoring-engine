@@ -66,3 +66,19 @@ def test_territory_never_changes_the_score_or_the_tier():
     results = score_all(accounts, RULES, roster)
     assert [r["territory_status"] for r in results] == ["In territory", "Outside territory", "Not checked"]
     assert [(r["score"], r["tier"]) for r in results] == [(70, "B"), (70, "B"), (70, "B")]
+
+
+def test_accounts_that_fit_no_segment_come_last_and_do_not_stop_the_run():
+    # ACC-0001 has 30 employees and ACC-0002 has none: both are flagged, not
+    # scored, and listed after every scored account, by id. The scored ones
+    # keep their ranking order. Worked out by hand: ACC-0004 scores 20, ACC-0003 scores 0.
+    accounts = [
+        make_account("ACC-0002", employees=None),
+        make_account("ACC-0003"),
+        make_account("ACC-0001", employees=30, hiring_surge=True),
+        make_account("ACC-0004", hiring_surge=True),
+    ]
+    results = score_all(accounts, RULES, {})
+    assert [r["id"] for r in results] == ["ACC-0004", "ACC-0003", "ACC-0001", "ACC-0002"]
+    assert [r["territory_status"] for r in results[2:]] == ["Needs review", "Needs review"]
+    assert [(r["score"], r["tier"]) for r in results[2:]] == [(None, None), (None, None)]

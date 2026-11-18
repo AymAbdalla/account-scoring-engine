@@ -239,6 +239,26 @@ def find_field_problems(fields, needed_names):
     return problems
 
 
+def find_picklist_problems(fields, limits):
+    """Name each picklist value in force-app/ that Salesforce does not hold as an active value.
+
+    `fields` is what read_account_fields returns; `limits` is what
+    load_field_limits returns. A restricted picklist refuses any value it does
+    not hold, so a value added in force-app/ but not yet deployed would make
+    the whole write-back fail. This finds it first, while only reading.
+    """
+    problems = []
+    for name in sorted(limits):
+        wanted = limits[name].get("values")
+        if not wanted or name not in fields:
+            continue  # not a picklist, or already reported by find_field_problems
+        active = {entry.get("value") for entry in fields[name].get("picklistValues") or [] if entry.get("active")}
+        for value in wanted:
+            if value not in active:
+                problems.append("{}: Salesforce has no active value '{}'".format(name, value))
+    return problems
+
+
 def call_salesforce(send, doing_what):
     """Make one request. If the network fails, explain it without showing the request."""
     try:

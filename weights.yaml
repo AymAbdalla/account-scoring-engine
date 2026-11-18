@@ -5,7 +5,7 @@
 # Every score records the rules version that made it.
 # Editing the country table does not bump it: that changes the territory
 # flag, not the score.
-version: 1
+version: 2  # 2: every matched rule is listed, not only the top three
 
 # Territories: a BDR covers one segment in one region.
 # Company size decides the segment, and where the company has its
@@ -62,13 +62,17 @@ countries_by_region:
 
 # Territory check. A BDR covers one segment in one region (see data/bdrs.json).
 # The engine compares each account's own segment and region with its BDR's
-# and reports one of these three results. It only flags; it never moves an
+# and reports one of the first three results. It only flags; it never moves an
 # account.
+# The fourth, Needs review, is for an account that fits no segment: fewer
+# employees than the smallest segment, no employee count, or a count that is
+# not a whole number. Such an account is not scored, and the run carries on.
 bdr_field: bdr
 territory_statuses:
   in: In territory
   outside: Outside territory
   not_checked: Not checked
+  needs_review: Needs review
 
 # Five rules that add up to 100 points. Each rule looks at one field of the
 # account and runs one kind of check on it:
@@ -114,5 +118,6 @@ tiers:
     min_score: 0
 
 # How many reasons to show for each account, and what to show when no rule matched.
-max_reasons: 3
+# 5 is every rule, so the reasons shown always add up to the score.
+max_reasons: 5
 no_match_reason: No rules matched

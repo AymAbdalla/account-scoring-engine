@@ -6,8 +6,8 @@ Rank a BDR team's accounts on transparent rules and put the result where reps al
 
 ## In scope for v0.1
 
-- 1,800 generated sample accounts and 60 BDRs. Each BDR works one segment in one region: 5 segments x 4 regions (North America, EMEA, APAC, LATAM) x 3 BDRs, with 30 accounts each. Every 20th account (90 in all) is deliberately placed outside its BDR's territory, in equal thirds by size, by region and by both, so every BDR has one or two. Every 100th account counting from number 50 (18 in all) has a headquarters country that is not in the country table.
-- Segment assignment by employee count, five scoring rules, tiers and top three reasons.
+- 1,800 generated sample accounts and 60 BDRs. Each BDR works one segment in one region: 5 segments x 4 regions (North America, EMEA, APAC, LATAM) x 3 BDRs, with 30 accounts each. Every 20th account (90 in all) is deliberately placed outside its BDR's territory, in equal thirds by size, by region and by both, so every BDR has one or two. Every 100th account counting from number 50 (18 in all) has a headquarters country that is not in the country table. Every 300th account counting from number 75 (ACC-0075, 0375, 0675, 0975, 1275 and 1575, each with a different BDR) has fewer than 50 employees, so the demo shows an account flagged for review.
+- Segment assignment by employee count, five scoring rules, tiers and every reason behind each score. An account that fits no segment is flagged for review instead of scored, and the run carries on.
 - Write-back of results to Salesforce Account in a free Developer org.
 - A scheduled run plus a manual Run button through GitHub Actions.
 - Runs on Python 3.13, named in `.python-version`.
@@ -36,7 +36,7 @@ The demo says why the sample is small, what the demo environment limits, and how
 | name | text | Generated company name |
 | hq_country | text or empty | Country of the company's headquarters; decides the region |
 | bdr | text | Generated BDR name; the BDR who holds the account in the sample data. Also matched by name to a Salesforce user when the account is first created (see Account ownership) |
-| employees | whole number | 50 or more; decides the segment |
+| employees | whole number or empty | Decides the segment. Fewer than 50, empty or not a whole number fits no segment: the account is not scored and is flagged Needs review (see Territory) |
 | countries | whole number | How many countries the company operates in |
 | industry | text | |
 | hiring_surge | true / false | |
@@ -76,13 +76,14 @@ The Salesforce Segment, Region and Tier picklists hold the same lists as `weight
 
 A territory is a segment plus a region, for example "Enterprise, EMEA". The BDR roster (`data/bdrs.json` in the sample) says which territory each BDR covers. A roster entry that names a segment or region missing from `weights.yaml` stops the run, because that is a setup mistake.
 
-For every account the engine compares the account's own territory with the territory of the BDR who holds it, and reports one of three statuses (their names are in `weights.yaml`):
+For every account the engine compares the account's own territory with the territory of the BDR who holds it, and reports one of four statuses (their names are in `weights.yaml`):
 
 | Status | When | Note |
 |---|---|---|
 | In territory | Segment and region both match | Empty |
 | Outside territory | Segment, region or both differ | The evidence, for example `Outside territory: 205 employees is Mid-Market; BDR covers SMB.` or `Outside territory: headquarters in Germany is EMEA; BDR covers APAC.` Both sentences appear when both differ. |
 | Not checked | The country is missing or not in the table, or the account has no BDR, or the BDR is not in the roster | The reason, for example `Not checked: headquarters country "Iceland" is not in the country table.` |
+| Needs review | The account fits no segment: fewer than 50 employees, no employee count, or a count that is not a whole number. It is not scored, and this status wins over the other three | The reason, for example `Needs review: 30 employees is below the smallest segment, SMB (50 to 199).` or `Needs review: no employee count.` |
 
 The engine only flags. It never changes the BDR or the Account Owner of an account that already exists, and the score and tier do not depend on territory. An account outside its BDR's territory is ranked in the segment it truly belongs to. The one time the engine sets an owner is when it first creates an account (see Account ownership).
 
@@ -109,9 +110,11 @@ No rule logic lives outside `weights.yaml`.
 
 ## Output: one scored account (in `output/scores.json`)
 
-`id`, `segment`, `region` (empty when the country is missing or not in the table), `score`, `tier`, `top_reasons` (the rules that matched, highest points first, three at most; rules with equal points keep their order in `weights.yaml`; an account that matched fewer than three rules lists only those, and an account that matched none gets the single line "No rules matched"), `unknown` (the names of any fields that were empty; an empty field scores zero for its rule and is reported here instead of counting as a negative signal), `rules_version`, `territory_status`, `territory_note` (empty when the account is in territory), `scored_at` (UTC time).
+`id`, `segment`, `region` (empty when the country is missing or not in the table), `score`, `tier`, `top_reasons` (every rule that matched, highest points first, so the reasons add up to the score; `max_reasons` in `weights.yaml` is 5, which is every rule; rules with equal points keep their order in `weights.yaml`; an account that matched none gets the single line "No rules matched"), `unknown` (the names of any fields that were empty; an empty field scores zero for its rule and is reported here instead of counting as a negative signal), `rules_version`, `territory_status`, `territory_note` (empty when the account is in territory), `scored_at` (UTC time).
 
-Ranking order: score from highest to lowest, then account `id`, so the order is the same on every run.
+An account flagged Needs review has an empty `segment`, `score` and `tier` and no `top_reasons`; it keeps its `region` and `scored_at`.
+
+Ranking order: score from highest to lowest, then account `id`, so the order is the same on every run. Accounts flagged Needs review come last, in `id` order.
 
 ## Salesforce fields on Account
 
@@ -124,12 +127,14 @@ Ranking order: score from highest to lowest, then account `id`, so the order is 
 | Last Scored | Date/Time | Engine, every run |
 | Segment | Picklist (the five segments) | Engine, every run |
 | Region | Picklist (the four regions) | Engine, every run; left as it is when the country is unknown |
-| Territory Status | Picklist (In territory, Outside territory, Not checked) | Engine, every run |
+| Territory Status | Picklist (In territory, Outside territory, Not checked, Needs review) | Engine, every run |
 | Territory Note | Text, 255 characters | Engine, every run; sent empty when the account is in territory, so an old note is cleared |
 | BDR | Text | First load only |
 | Account Owner (standard field) | User | First load only, and only when the BDR is a real user (see Account ownership) |
 
 Account Name is also set on the first load only. The headquarters country is not written to Salesforce.
+
+For an account flagged Needs review, Score, Tier, Segment and Top Reasons are sent as empty values, so a score from an earlier run is cleared rather than left beside the flag. Last Scored, Region, Territory Status and Territory Note are written as for any account.
 
 Because Segment and Region are engine fields, a change made to them by hand in Salesforce is overwritten on the next run. Exceptions belong to the "Overrides and history" item on the roadmap.
 
@@ -140,7 +145,7 @@ Because Segment and Region are engine fields, a change made to them by hand in S
 3. **Never delete or blank an account** because it was missing from a run.
 4. **All or nothing, one request at a time.** Check every record before writing. If the engine's own check finds a bad record, write nothing at all. Salesforce takes at most 200 records in a batch and, by its REST guide, at most five such batches in one request, so one all-or-nothing request holds at most 1,000 records. Tested in the Developer org on 2026-11-14: one bad record in either of two batches made Salesforce undo both. A run of more than 1,000 records is sent as several requests of up to 1,000, each all or nothing. If Salesforce refuses a later request, the earlier ones stay saved, so Salesforce can hold a mix of this run's scores and the last run's until the run is repeated. The engine says how many accounts were written and how many were not, the run fails, and a rerun is safe. The requests go in order, and the engine stops at the first one that fails: if the first is refused, nothing is changed; if the second is refused, the first 1,000 are saved and the other 800 are not.
 5. **Read back.** After writing, count the accounts that have this run's Last Scored time. Any number other than the number scored means the run failed. So that the count can only be this run's work, the engine also counts before writing: if any account already carries this run's time (an earlier run in the same second), it sends nothing and stops. A run succeeds only when Salesforce answers the write with a clean success and the count matches. When a run is sent as two requests, the engine counts after each one: 1,000 after the first, 1,800 after the second. If the second is refused, the count is what it reports as written. Any other answer fails the run whatever the count says. A write request that gets no answer also fails the run, and the engine says to run it again. What it reports as written depends on the count. If the count has not moved since the last request that was confirmed (0 for the first request, 1,000 for the second), nothing from the unanswered request was saved, and the engine reports that number as written. If the count has moved, the request may have been saved, but a count cannot prove the accounts came from this run, so the engine reports the written count as unknown. A rerun is safe.
-6. **Fail loudly.** Print scored, written and failed counts. Any failure exits with an error, so GitHub Actions shows a red run.
+6. **Fail loudly.** Print scored, needs review (when there are any), written and failed counts, for example `Scored 1794, needs review 6, written 1800, failed 0.` An account flagged Needs review is written like any other and counted in the read back. Any failure exits with an error, so GitHub Actions shows a red run.
 
 ## Account ownership
 
@@ -154,7 +159,7 @@ A Salesforce dashboard shows numbers as of the last time someone pressed Refresh
 
 **The BDR dashboard ("my accounts").** One dashboard shared by every BDR. It loads its numbers as whoever is looking at it, and its reports are limited to the accounts the viewer owns, which is what makes each BDR see only their own. It has three tiles: my accounts by tier, as a chart with the total; my Tier A and B accounts, as a table sorted by score with name, tier, score and the date and time each was last scored; and my accounts outside my territory, as a table with the engine's note. Tier B is included because only about 4 in 100 accounts are Tier A, which would leave a typical BDR with one or none. Adding a BDR means adding a user; the dashboard does not change.
 
-**The manager dashboard ("Team Account Scoring").** The whole team, in seven tiles: accounts scored; accounts outside their BDR's territory; accounts by tier; by segment and by region, each split by tier; Tier A and B accounts for each BDR, most first; and every Tier A account with its BDR, segment, region, score and the date and time it was last scored, which is where the dashboard shows the last scored time. "By BDR" counts Tier A and B accounts because every BDR holds the same number of accounts, so a plain count would say nothing.
+**The manager dashboard ("Team Account Scoring").** The whole team, in eight tiles: accounts scored; accounts outside their BDR's territory; accounts by tier; by segment and by region, each split by tier; Tier A and B accounts for each BDR, most first; and every Tier A account with its BDR, segment, region, score and the date and time it was last scored, which is where the dashboard shows the last scored time; and, along the bottom, every account that needs review, with its BDR, region, the reason and when it was last scored. "By BDR" counts Tier A and B accounts because every BDR holds the same number of accounts, so a plain count would say nothing. The other tiles count only accounts with a tier, so a flagged account appears only in the Needs review table.
 
 **Who can see them.** A viewer needs the `Scoring_Viewer` permission set. It lets them read the ten scoring fields and open the Account Scoring app, and nothing else. Both dashboards are open to everyone inside the org.
 
@@ -172,7 +177,8 @@ Salesforce credentials live in GitHub Actions secrets and a local `.env` file th
 
 ## Done when (v0.1 acceptance)
 
-- [x] `python run_local.py` prints tier counts for each segment that add up to 1,800, and the top 3 accounts in each segment with BDR, region and up to three reasons each. It also prints the territory check, with each flagged account and its note: 1,692 in territory, 90 outside and 18 not checked. Those three numbers follow from the agreed pattern and are confirmed when the data is generated.
+- [x] `python run_local.py` prints tier counts for each segment that add up to 1,794, plus 6 accounts that need review, and the top 3 accounts in each segment with BDR, region and every reason each. It also prints the territory check, with each flagged account and its note: 1,686 in territory, 90 outside, 18 not checked and 6 needing review. Those numbers follow from the agreed pattern and are confirmed when the data is generated.
+- [ ] After `force-app/` is deployed, a real run writes the six accounts that need review with no score or tier, ends `Scored 1794, needs review 6, written 1800, failed 0.`, and the team dashboard's Needs review table lists exactly those six.
 - [x] `pytest` passes, including the segment band edges (199, 200, 699, 700, 999, 1,000, 5,000, 5,001).
 - [x] Two runs in a row leave exactly 1,800 scored accounts in Salesforce, with no duplicates.
 - [x] One bad record among the 1,800 that the engine's own check catches leaves nothing written.
@@ -212,6 +218,9 @@ The rows below were decided by the owner in chat on 2026-11-15. Everything else 
 | "By BDR" on the manager dashboard shows the Tier A and B accounts of each BDR, most first | chat, 2026-11-15: "go", approving the dashboards plan with its recommendation |
 | The BDR dashboard is the Home page of a new Account Scoring app; no profile and no standard app is changed | chat, 2026-11-15: "go with A" |
 | A viewer needs the read-only `Scoring_Viewer` permission set, and the admin user holds it too | chat, 2026-11-15: "go", approving the plan; and "yes, add Scoring_Viewer to my admin user" |
+| Every matched reason shows, not only the top three | chat, 2026-11-18: "why is the 4th reason hidden? can we fix that", then "yes, go with your recs", approving `docs/plans/needs-review-and-all-reasons.md` |
+| An account that fits no segment is skipped and flagged for human review in Salesforce instead of stopping the run | chat, 2026-11-18: "it should just be skipped and ignored and identified and flaggged for human review", then "1, go" (flag in Salesforce) |
+| Six sample accounts get fewer than 50 employees so the demo shows the flag | chat, 2026-11-18: "yes, go with your recs" |
 
 ## Open items
 
