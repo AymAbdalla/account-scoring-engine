@@ -10,12 +10,18 @@ Only list an item here once it's built and checked.
 
 ## [Unreleased]
 
-Work towards v0.1.0. Everything listed here is built, tested and checked. Still to come before v0.1.0 is released: the demo video. The weekday schedule has now run by itself on GitHub twice, on November 16 and 17, writing all 1,800 accounts each time with none failed; GitHub started both runs hours after 7:00 AM.
+Work towards v0.1.0. Everything listed here is built, tested and checked, except the items marked "not yet proven in the org", which are built and tested against a stand-in for Salesforce. Still to come before v0.1.0 is released: deploying `force-app/` and a real run for those items, new dashboard pictures, and the demo video. The weekday schedule has now run by itself on GitHub twice, on November 16 and 17, writing all 1,800 accounts each time with none failed; GitHub started both runs hours after 7:00 AM.
 
 ### Added
 
+Needs review
+- An account that fits no segment, because it has fewer than 50 employees or no employee count, is no longer an error that stops the run (not yet proven in the org). It is not scored; it is written to Salesforce with Territory Status "Needs review", a note that says why, and its Score, Tier, Segment and Top Reasons empty (cleared, if it was scored before). The run carries on with every other account, and its last line reads, for example, `Scored 1794, needs review 6, written 1800, failed 0.` A broken file, such as a duplicate id, still stops the run before anything is sent.
+- A "Needs review" table along the bottom of the team dashboard (not yet proven in the org): each flagged account with its BDR, region, the reason and when it was last scored, from a new Accounts Needing Review report.
+- The connection check also confirms that the org holds every picklist value in `force-app/`. A value added in the files but not yet deployed, such as "Needs review", fails the check while it is still only reading, before any write.
+- Six of the 1,800 sample accounts (ACC-0075, then every 300th) have fewer than 50 employees, so the demo shows the flag: 1,794 accounts are scored and 6 need review. Every other account is unchanged.
+
 Scoring
-- Scoring engine: five rules worth 100 points, tiers A to D, and up to three reasons per account in plain English. An account that matches no rule says "No rules matched".
+- Scoring engine: five rules worth 100 points, tiers A to D, and every reason that earned points, highest first, in plain English, so the reasons add up to the score. An account that matches no rule says "No rules matched".
 - One rules file, `weights.yaml`: the segment bands, the regions and their countries, the rules, the tier cutoffs and the territory status names. Changing a weight changes no code, and every score records the rules version that made it.
 - Segments by employee count: SMB, Mid-Market, Sub-Enterprise, Enterprise and Large Enterprise. Size decides who works an account and earns no points.
 - Missing data scores zero and is reported as unknown, never as a negative signal.
@@ -41,7 +47,7 @@ Dashboards
 - Team Account Scoring, for a manager: accounts scored, accounts outside territory, accounts by tier, by segment and by region (each split by tier), Tier A and B accounts for each BDR, and every Tier A account with the time it was last scored.
 - Account Scoring app: four tabs, with My Accounts as its Home page.
 - `Scoring_Viewer` permission set: read the ten scoring fields and open the Account Scoring app. It cannot create, edit or delete anything.
-- Nine reports, the two dashboards, the Home page and the app are kept as files in `force-app/` and deployed with the fields. No file names a Salesforce user.
+- Ten reports, the two dashboards, the Home page and the app are kept as files in `force-app/` and deployed with the fields. No file names a Salesforce user.
 
 GitHub Actions
 - Run button (`score-accounts` workflow): checks the connection to Salesforce, then runs the write-back. The three Salesforce secrets are handed only to those two steps.
@@ -50,12 +56,13 @@ GitHub Actions
 - Both workflows name their actions by exact commit id, give the job read-only access to the code, and install libraries from a lock file with checksums enforced.
 
 Tests
-- 414 automated tests. The Salesforce tests run against a stand-in that answers the way the real org does, and a safety net makes any test fail at once if it tries to reach the real network.
+- 448 automated tests. The Salesforce tests run against a stand-in that answers the way the real org does, and a safety net makes any test fail at once if it tries to reach the real network.
 - Tests that read the workflow files and fail if a safety rule is loosened: an action named by a tag, wider permissions, a risky trigger, an install without checksums, or a credential anywhere except the two agreed steps, however it is written.
 - Tests that read the dashboard files and fail if a promise is broken: My Accounts no longer loads as the viewer or shows other people's accounts, a report counts accounts that were never scored, a file names a person, the viewer permission set grants more than reading, a number or chart tile draws a report it cannot show, or the BDR tile cuts off part of the team.
 
 ### Changed
 
+- Every reason shows (not yet proven in the org): an account lists every rule it matched, not only the top three. An 85-point account now shows four reasons. Rules version 2; no weight, band or tier cutoff changed, so every score and tier is the same as before.
 - Tier A needs at least two of the three timing signals. The earlier wording said one; full fit plus one timing signal is 70 points, which is Tier B.
 - Segment and Region are written to Salesforce on every run. They were first-load only before the engine worked them out itself.
 - The roadmap in the README is grouped into v0.2, v0.3 and v0.4.

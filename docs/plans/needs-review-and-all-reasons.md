@@ -66,7 +66,7 @@ What is worth protecting: the org credentials (GitHub secrets `SF_INSTANCE_URL`,
 
 ## Risks, open decisions and fog
 
-- **Open decision (owner): slice 5, put six under-50 accounts in the demo data?** Recommended yes: without them the tile is empty on the video and the real Run never proves the flag. The cost: tier and territory counts change slightly (1,794 scored), and the dashboard screenshots need retaking.
+- **Settled (owner, 2026-11-18, "yes, go with your recs"): slice 5, put six under-50 accounts in the demo data.** The recommendation was yes: without them the tile is empty on the video and the real Run never proves the flag. The cost: tier and territory counts change slightly (1,794 scored), and the dashboard screenshots need retaking.
 - **Risk: order of deploy and merge.** If the code reaches `main` and the scheduled run writes "Needs review" before the picklist value is deployed, Salesforce refuses the whole request and the run goes red. Limit: deploy from this branch first, then merge; the plan's merge step checks that the value is in the org.
 - **Risk: clearing fields.** Sending an empty value must clear Score and Tier, not be ignored. Limit: a fake-Salesforce test now, and the real read-back after the Run checks that flagged accounts have no tier.
 - **Risk: the recording moves.** This adds a build round, a deploy on the Mac and new screenshots before recording. The Nov 6 email promised the video "within the next week or so".
