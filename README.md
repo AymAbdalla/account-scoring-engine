@@ -4,11 +4,11 @@
 
 ▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md) · [All rights reserved](LICENSE)
 
-**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 and at 1,800 accounts, each including a forced failure. The weekday schedule has run by itself on GitHub, on November 16 and 17, each time writing all 1,800 accounts with none failed. GitHub started both runs hours after 7:00 AM. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. Two newer changes are built and tested against a stand-in for Salesforce but not yet run in the org: every account lists every reason behind its score, and an account that fits no segment is flagged for review instead of stopping the run. The demo video is still to come before v0.1.0 is released.
+**Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 and at 1,800 accounts, each including a forced failure. The weekday schedule has run by itself on GitHub, on November 16 and 17, each time writing all 1,800 accounts with none failed. GitHub started both runs hours after 7:00 AM. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. Two newer changes are proven in the org by a real run on November 18: every account lists every reason behind its score, and an account that fits no segment is flagged for review instead of stopping the run. That run ended `Scored 1794, needs review 6, written 1800, failed 0.`, and its counts match direct queries in the org. The demo video is still to come before v0.1.0 is released.
 
-![The team dashboard: 1,800 accounts scored, 90 outside their BDR's territory, accounts by tier as columns, and stacked bars by segment and by region, each split by tier.](docs/dashboard-team.png)
+![The team dashboard: 1,794 accounts scored, 90 outside their BDR's territory, accounts by tier as columns, and stacked bars by segment and by region, each split by tier.](docs/dashboard-team.png)
 
-_The team dashboard, for a manager: every scored account by tier, segment and region. These pictures show the numbers before six sample accounts were made too small to score (1,800 scored then, 1,794 now); they are retaken after the next real run. More under [Dashboards](#dashboards)._
+_The team dashboard, for a manager: every scored account by tier, segment and region. Pictures taken after the November 18 run. More under [Dashboards](#dashboards)._
 
 ## Architecture at a glance
 
@@ -89,9 +89,11 @@ Both dashboards, their reports, the Home page and the app are files in `force-ap
 
 ![My Accounts as one BDR: a ring of 30 accounts by tier, a table of eight Tier B accounts sorted by score with the time each was last scored, and one account outside the BDR's territory with the engine's note.](docs/dashboard-my-accounts.png)
 
-**Team Account Scoring, for a manager.** Eight tiles: accounts scored, accounts outside their BDR's territory, accounts by tier, by segment and by region (each split by tier), Tier A and B accounts for each BDR, every Tier A account with its BDR, segment, region, score and the time it was last scored, and, along the bottom, every account that needs review with its BDR, region and the reason. The pictures here show the seven tiles from before the Needs review table was added.
+**Team Account Scoring, for a manager.** Eight tiles: accounts scored, accounts outside their BDR's territory, accounts by tier, by segment and by region (each split by tier), Tier A and B accounts for each BDR, every Tier A account with its BDR, segment, region, score and the time it was last scored, and, along the bottom, every account that needs review with its BDR, region and the reason.
 
 ![The third row of the team dashboard: one bar for each BDR showing their Tier A and Tier B accounts, most first, beside a table of Tier A accounts with BDR, segment, region, score and last scored time.](docs/dashboard-team-bdr.png)
+
+![The Needs review table along the bottom of the team dashboard: the six accounts with fewer than 50 employees, each with its BDR, region, the reason and when it was last scored.](docs/dashboard-needs-review.png)
 
 Every BDR in the sample holds exactly 30 accounts, so a count of accounts per BDR would be 60 equal bars. The "by BDR" tile counts Tier A and B accounts instead: whose book is richest right now.
 
@@ -154,10 +156,6 @@ Three limits worth knowing. The check compares against the BDR in the sample dat
 | Segment, Region, Territory Status, Territory Note | Engine | works out and writes on every run, so a change made by hand is overwritten |
 | Name, BDR | Salesforce (in this demo, loaded once from sample data) | never overwrites |
 | Account Owner | Salesforce | sets once, when it first creates an account and a Salesforce user has the BDR's name; never changes it afterwards |
-
-## Case study
-
-Why it was built this way, how it was checked and where its limits are: [docs/case-study.md](docs/case-study.md).
 
 ## Roadmap
 
