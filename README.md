@@ -4,6 +4,8 @@
 
 ▶ Demo video: _link added at release_ · Latest release: _v0.1.0 (in progress)_ · [Changelog](CHANGELOG.md) · [Spec](SPEC.md) · [All rights reserved](LICENSE)
 
+**Built with:** Python, PyYAML and pytest; the Salesforce REST API with SOQL; Salesforce metadata (fields, permission sets, reports, dashboards and an app) deployed from source with the Salesforce CLI; GitHub Actions for tests, on-demand runs and the weekday schedule.
+
 **Status:** the scoring engine, the territory check and the Salesforce write-back are built and tested, and the write-back is proven in a Salesforce Developer org with 1,800 sample accounts, including a write that Salesforce refused halfway. The Run button on GitHub is proven with real runs at 300 and at 1,800 accounts, each including a forced failure. The weekday schedule has run by itself on GitHub, on November 16 and 17, each time writing all 1,800 accounts with none failed. GitHub started both runs hours after 7:00 AM. The two Salesforce dashboards are built and seen working in the Developer org, one of them as two real BDR users. Two newer changes are proven in the org by a real run on November 18: every account lists every reason behind its score, and an account that fits no segment is flagged for review instead of stopping the run. That run ended `Scored 1794, needs review 6, written 1800, failed 0.`, and its counts match direct queries in the org. The demo video is still to come before v0.1.0 is released.
 
 ![The team dashboard: 1,794 accounts scored, 90 outside their BDR's territory, accounts by tier as columns, and stacked bars by segment and by region, each split by tier.](docs/dashboard-team.png)
